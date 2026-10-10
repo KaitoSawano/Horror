@@ -24,9 +24,11 @@ export function buildTrees(cx, cz, scene) {
       const pz = cellZ + r2 * CELL_SIZE;
       const h = getHeight(px, pz);
 
-      // Cuma 35% cell yang punya pohon, di ketinggian tertentu
+      // Cuma 35% cell yang punya pohon
       if (r3 >= 0.35) continue;
-      if (h <= 2 || h >= 22) continue;
+
+      // Pohon cuma di daratan (height > 1, height < 22)
+      if (h <= 1 || h >= 22) continue;
 
       const g = new THREE.Group();
       const scale = 0.8 + r4 * 0.7;
