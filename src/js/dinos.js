@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { getHeight } from './noise.js';
 
-// ===== STATE =====
 const dinos = [];
 let dinoTemplate = null;
 let dinoAnimations = {};
@@ -19,7 +19,6 @@ const SPAWN_CONFIG = {
   targetHeight: 15
 };
 
-// ===== LOAD MODEL =====
 export function loadDinoModel(onLoaded) {
   const loader = new GLTFLoader();
   loader.load(
@@ -58,17 +57,14 @@ export function isDinoLoaded() {
   return loaded;
 }
 
-// ===== SPAWN DINO =====
 export function spawnDino(x, z, scene) {
   if (!dinoTemplate) return null;
   const h = getHeight(x, z);
   if (h < SPAWN_CONFIG.minLandHeight || h > SPAWN_CONFIG.maxLandHeight) return null;
 
-  const model = THREE.SkeletonUtils
-    ? THREE.SkeletonUtils.clone(dinoTemplate)
-    : dinoTemplate.clone(true);
+  // === PAKAI SKELETONUTILS BUAT CLONE ===
+  const model = SkeletonUtils.clone(dinoTemplate);
 
-  // === AUTO-SCALE ===
   const box = new THREE.Box3().setFromObject(model);
   const size = box.getSize(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
@@ -78,16 +74,15 @@ export function spawnDino(x, z, scene) {
   console.log('[DINO] Original:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2));
   console.log('[DINO] Auto-scale:', autoScale.toFixed(3));
 
-  // === DEBUG: WARNAI MERAH ===
+  // Material — warna hijau dulu (bukan merah, biar keliatan natural)
   model.traverse((child) => {
     if (child.isMesh) {
       child.visible = true;
       child.frustumCulled = false;
-      child.material = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide });
+      // Jangan ganti material — biar texture asli keliatan
     }
   });
 
-  // === HITUNG TINGGI MODEL ===
   const boxFinal = new THREE.Box3().setFromObject(model);
   const modelHeight = boxFinal.max.y - boxFinal.min.y;
   const yPos = h + modelHeight / 2;
@@ -97,16 +92,6 @@ export function spawnDino(x, z, scene) {
   model.position.set(x, yPos, z);
   model.rotation.y = Math.random() * Math.PI * 2;
   scene.add(model);
-
-  // === DEBUG: KOTAK MERAH ===
-  const debugBox = new THREE.Mesh(
-    new THREE.BoxGeometry(modelHeight, modelHeight, modelHeight),
-    new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
-  );
-  debugBox.position.set(x, yPos, z);
-  scene.add(debugBox);
-
-  console.log('[DINO] Spawn at:', x.toFixed(1), yPos.toFixed(1), z.toFixed(1));
 
   const mixer = new THREE.AnimationMixer(model);
   const actions = {};
@@ -135,10 +120,10 @@ export function spawnDino(x, z, scene) {
   };
 
   dinos.push(dino);
+  console.log('[DINO] Spawn at:', x.toFixed(1), yPos.toFixed(1), z.toFixed(1));
   return dino;
 }
 
-// ===== AUTO SPAWN =====
 let spawnTimer = 0;
 
 export function autoSpawnDinos(player, scene, delta) {
@@ -164,7 +149,6 @@ export function autoSpawnDinos(player, scene, delta) {
   }
 }
 
-// ===== DESPAWN =====
 export function despawnFarDinos(player, scene) {
   for (let i = dinos.length - 1; i >= 0; i--) {
     const dino = dinos[i];
@@ -183,7 +167,6 @@ export function despawnFarDinos(player, scene) {
   }
 }
 
-// ===== GANTI ANIMASI =====
 function setAction(dino, actionName) {
   if (dino.currentAction === actionName) return;
   if (!dino.actions[actionName]) return;
@@ -194,7 +177,6 @@ function setAction(dino, actionName) {
   dino.currentAction = actionName;
 }
 
-// ===== AI UPDATE =====
 export function updateDinos(player, delta, onAttackPlayer) {
   for (const dino of dinos) {
     if (dino.state === 'dead') {
@@ -240,7 +222,6 @@ export function updateDinos(player, delta, onAttackPlayer) {
   }
 }
 
-// ===== DAMAGE =====
 export function damageDino(dino, amount) {
   if (dino.state === 'dead') return;
   dino.hp -= amount;
