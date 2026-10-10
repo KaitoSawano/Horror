@@ -3,26 +3,25 @@ import { getHeight } from './js/noise.js';
 import { createLights } from './js/lights.js';
 import { createSky, updateSky } from './js/sky.js';
 import { createWater, updateWater } from './js/water.js';
-import { updateChunks, processChunkQueue, getChunks, chunkKey } from './js/terrain.js';
+import { updateChunks, processChunkQueue, getChunks } from './js/terrain.js';
 import { buildChunkObjects } from './js/scatter.js';
 import { player, updatePlayer, takeDamage, isAlive } from './js/player.js';
-import { loadDinoModel, updateDinos, damageDino, getDinos, isDinoLoaded } from './js/dinos.js';
+import { loadDinoModel, updateDinos, damageDino, getDinos, isDinoLoaded, autoSpawnDinos, despawnFarDinos } from './js/dinos.js';
 import { placeVoxel, removeVoxelAt, getVoxelBlocks } from './js/voxel.js';
 import { initInventoryUI, getActiveItem, consumeActiveItem, addItemToInventory, selectHotbar } from './js/inventory.js';
-import { initInput, input, setStarted, setInvOpen } from './js/input.js';
+import { initInput, input, setStarted } from './js/input.js';
 import { updateUI } from './js/ui.js';
 import { PLAYER } from './js/config.js';
 
-// ===== DEBUG =====
 const debugEl = document.getElementById('debug');
 function debug(msg, isError = false) {
   if (!debugEl) return;
   debugEl.textContent = msg;
   debugEl.style.color = isError ? '#ff4444' : '#0f0';
+  debugEl.style.display = 'block';
 }
 window.addEventListener('error', (e) => debug('ERR: ' + (e.message || 'unknown'), true));
 
-// ===== SETUP =====
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
 scene.fog = new THREE.Fog(0x87ceeb, 60, 220);
@@ -47,13 +46,8 @@ const sky = createSky(scene);
 createWater(scene);
 initInventoryUI();
 
-// ===== LOAD DINO =====
-debug('Loading dino model...');
-loadDinoModel(() => {
-  debug('Dino ready');
-});
+loadDinoModel(() => debug('Dino ready'));
 
-// ===== RAYCAST =====
 const raycaster = new THREE.Raycaster();
 raycaster.far = 6;
 
@@ -77,7 +71,6 @@ function raycastVoxel() {
   return hits.length > 0 ? hits[0] : null;
 }
 
-// Cek apakah ada dino di depan (buat attack)
 function raycastDino() {
   const meshes = [];
   getDinos().forEach((d) => {
@@ -86,8 +79,6 @@ function raycastDino() {
   raycaster.set(camera.position, getLookDirection());
   const hits = raycaster.intersectObjects(meshes, true);
   if (hits.length === 0) return null;
-
-  // Cari dino yang punya mesh itu
   const hitObj = hits[0].object;
   for (const dino of getDinos()) {
     let p = hitObj;
@@ -99,7 +90,6 @@ function raycastDino() {
   return null;
 }
 
-// ===== AKSI =====
 function onPlace() {
   const item = getActiveItem();
   if (!item || item.count <= 0) return;
@@ -111,7 +101,6 @@ function onPlace() {
     if (placeVoxel(pos.x, pos.y, pos.z, item.id, scene)) consumeActiveItem();
     return;
   }
-
   const terrainHit = raycastTerrain();
   if (terrainHit) {
     const pos = terrainHit.point.clone();
@@ -123,14 +112,11 @@ function onPlace() {
 }
 
 function onBreak() {
-  // Prioritas 1: pukul dino
   const dino = raycastDino();
   if (dino) {
     damageDino(dino, 20);
     return;
   }
-
-  // Prioritas 2: hancurin blok
   const hit = raycastVoxel();
   if (hit) {
     const mesh = hit.object;
@@ -140,14 +126,12 @@ function onBreak() {
   }
 }
 
-// ===== INIT INPUT =====
 initInput(renderer, {
   onPlace: onPlace,
   onBreak: onBreak,
   onSelectHotbar: selectHotbar
 });
 
-// ===== START =====
 let started = false;
 const hintBtn = document.getElementById('hint');
 
@@ -168,7 +152,6 @@ if (hintBtn) {
   }, { passive: false });
 }
 
-// ===== LOOP =====
 const clock = new THREE.Clock();
 let frameCount = 0;
 
@@ -191,10 +174,9 @@ function animate() {
       updateChunks(player.x, player.z, scene);
     }
 
-    // Update AI dino
-    updateDinos(player, delta, (damage) => {
-      takeDamage(damage);
-    });
+    updateDinos(player, delta, (damage) => { takeDamage(damage); });
+    autoSpawnDinos(player, scene, delta);
+    despawnFarDinos(player, scene);
 
     updateUI(player);
   }
