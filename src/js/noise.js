@@ -1,4 +1,4 @@
-// Fungsi noise & heightmap — multi benua + pulau
+// Fungsi noise & heightmap
 
 function hash(x, z) {
   let n = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
@@ -33,20 +33,25 @@ function fractalNoise(x, z, octaves, persistence, scale) {
   return total / maxValue;
 }
 
-// ===== SUPER KONTINEN (dengan transisi halus) =====
+// Smoothstep — transisi halus
+function smoothstep(edge0, edge1, x) {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+// ===== SUPER KONTINEN =====
 function getSuperContinent(x, z) {
-  const n = fractalNoise(x, z, 4, 0.6, 0.0003);
+  const n = fractalNoise(x, z, 3, 0.5, 0.0004);
   return (n - 0.5) * 2; // -1 sampai +1
 }
 
-// ===== PULAU SEDANG =====
+// ===== PULAU =====
 function getMediumIslandNoise(x, z) {
-  const n = fractalNoise(x + 20000, z + 20000, 3, 0.55, 0.0015);
+  const n = fractalNoise(x + 20000, z + 20000, 3, 0.5, 0.0015);
   if (n > 0.6) return (n - 0.6) / 0.4;
   return 0;
 }
 
-// ===== PULAU KECIL =====
 function getIslandNoise(x, z) {
   const n = fractalNoise(x + 10000, z + 10000, 3, 0.5, 0.004);
   if (n > 0.65) return (n - 0.65) / 0.35;
@@ -55,78 +60,89 @@ function getIslandNoise(x, z) {
 
 // ===== HEIGHT UTAMA =====
 export function getHeight(x, z) {
-  // === LAYER 1: SUPER KONTINEN ===
+  // === BASE: SUPER KONTINEN ===
   const superCont = getSuperContinent(x, z);
 
-  // Transisi HALUS: pakai smoothstep
-  // -1 = laut dalam, 0 = pantai, +1 = daratan tinggi
+  // Map superCont ke height dengan 5 zona bertahap:
+  // -1.0 → -40 (laut dalam)
+  // -0.5 → -15 (laut sedang)
+  // -0.2 → -3 (air dangkal)
+  //  0.0 → 0 (bibir pantai)
+  // +0.5 → 15 (daratan)
+  // +1.0 → 30 (tengah benua)
+
   let baseHeight;
+
   if (superCont < 0) {
-    // Laut: -1 → -40 unit
-    baseHeight = superCont * 40;
+    // === LAUT ===
+    // Pakai 3 zona biar drop-off bertahap
+    if (superCont > -0.2) {
+      // ZONA 1: AIR DANGKAL (0 sampai -3 unit)
+      // Dari bibir pantai (0) ke -3, jarak ~20 unit
+      const t = smoothstep(0, -0.2, superCont); // 0 di 0, 1 di -0.2
+      baseHeight = -t * 3;
+    } else if (superCont > -0.5) {
+      // ZONA 2: LAUT SEDANG (-3 sampai -15 unit)
+      // Dari -3 ke -15, jarak ~50 unit
+      const t = smoothstep(-0.2, -0.5, superCont); // 0 di -0.2, 1 di -0.5
+      baseHeight = -3 - t * 12;
+    } else {
+      // ZONA 3: LAUT DALAM (-15 sampai -40 unit)
+      // Dari -15 ke -40, jarak ~200 unit
+      const t = smoothstep(-0.5, -1, superCont); // 0 di -0.5, 1 di -1
+      baseHeight = -15 - t * 25;
+    }
   } else {
-    // Darat: 0 → +30 unit (tapi pake kurva biar gak tajam di tepi)
-    // Pakai pow biar tepi daratan landai, tengah tinggi
-    baseHeight = Math.pow(superCont, 0.7) * 30;
+    // === DARATAN ===
+    // Pakai 2 zona
+    if (superCont < 0.5) {
+      // ZONA DARATAN BAWAH (0 sampai +15)
+      const t = smoothstep(0, 0.5, superCont);
+      baseHeight = t * 15;
+    } else {
+      // ZONA DARATAN ATAS (+15 sampai +30)
+      const t = smoothstep(0.5, 1, superCont);
+      baseHeight = 15 + t * 15;
+    }
   }
 
-  // === LAYER 2: PULAU SEDANG ===
-  // Cuma di laut (baseHeight < 5)
-  if (baseHeight < 5) {
+  // === PULAU SEDANG ===
+  if (baseHeight < 0) {
     const mediumIsland = getMediumIslandNoise(x, z);
     if (mediumIsland > 0) {
-      // Kurva biar tepi pulau landai
-      baseHeight += Math.pow(mediumIsland, 0.8) * 12;
+      const t = smoothstep(0, 1, mediumIsland);
+      baseHeight += t * 15;
     }
   }
 
-  // === LAYER 3: PULAU KECIL ===
-  if (baseHeight < 3) {
+  // === PULAU KECIL ===
+  if (baseHeight < 2) {
     const smallIsland = getIslandNoise(x, z);
     if (smallIsland > 0) {
-      baseHeight += Math.pow(smallIsland, 0.8) * 6;
+      const t = smoothstep(0, 1, smallIsland);
+      baseHeight += t * 8;
     }
   }
 
-  // === LAYER 4: BUKIT & GUNUNG ===
-  // Cuma di daratan yang udah "matang" (baseHeight > 5)
-  // Ini kunci: jangan bikin gunung di tepi pantai!
-  if (baseHeight > 5) {
-    // Fade-in efek gunung: makin jauh dari pantai, makin kuat
-    // Di baseHeight = 5 → 0, di baseHeight = 15 → 1
-    const landFactor = Math.min(1, (baseHeight - 5) / 10);
+  // === BUKIT & GUNUNG ===
+  if (baseHeight > 8) {
+    const landFactor = smoothstep(8, 20, baseHeight);
 
-    // Bukit sedang
-    const hillNoise = (smoothNoise(x * 0.02, z * 0.02) - 0.5) * 8;
-    baseHeight += hillNoise * landFactor;
+    baseHeight += (smoothNoise(x * 0.02, z * 0.02) - 0.5) * 5 * landFactor;
+    baseHeight += (smoothNoise(x * 0.05, z * 0.05) - 0.5) * 2 * landFactor;
 
-    // Bukit kecil
-    const smallHill = (smoothNoise(x * 0.05, z * 0.05) - 0.5) * 3;
-    baseHeight += smallHill * landFactor;
-
-    // Gunung tinggi — cuma di daratan tinggi
-    if (baseHeight > 15) {
-      const mountainNoise = smoothNoise(x * 0.003, z * 0.003);
-      if (mountainNoise > 0.65) {
-        const mountainFactor = (mountainNoise - 0.65) / 0.35;
-        // Fade-in juga: gunung cuma di tengah benua
-        const mountainLandFactor = Math.min(1, (baseHeight - 15) / 10);
-        baseHeight += Math.pow(mountainFactor, 1.5) * 40 * mountainLandFactor;
-      }
-    }
-
-    // Tebing — cuma di daratan tinggi (bukan tepi pantai)
+    // Gunung
     if (baseHeight > 20) {
-      const cliffNoise = smoothNoise(x * 0.008 + 500, z * 0.008 + 500);
-      if (cliffNoise > 0.75) {
-        const cliffFactor = (cliffNoise - 0.75) / 0.25;
-        const cliffLandFactor = Math.min(1, (baseHeight - 20) / 10);
-        baseHeight += cliffFactor * 15 * cliffLandFactor;
+      const mountainNoise = smoothNoise(x * 0.003, z * 0.003);
+      if (mountainNoise > 0.72) {
+        const mountainFactor = (mountainNoise - 0.72) / 0.28;
+        const mountainLandFactor = smoothstep(20, 28, baseHeight);
+        baseHeight += Math.pow(mountainFactor, 1.5) * 15 * mountainLandFactor;
       }
     }
   }
 
-  // === LAYER 5: SUNGAI ===
+  // === SUNGAI ===
   if (baseHeight > 5) {
     const n1 = smoothNoise(x * 0.004, z * 0.004);
     const n2 = smoothNoise(x * 0.008 + 100, z * 0.008 + 100);
@@ -139,7 +155,7 @@ export function getHeight(x, z) {
     }
   }
 
-  // === LAYER 6: DANAU ===
+  // === DANAU ===
   if (baseHeight > 5) {
     const lakeN = fractalNoise(x + 500, z + 500, 2, 0.5, 0.004);
     if (lakeN > 0.72) {
@@ -148,10 +164,10 @@ export function getHeight(x, z) {
     }
   }
 
-  // === LAYER 7: PALUNG ===
-  if (baseHeight < -30) {
+  // === PALUNG (cuma di laut sangat dalam) ===
+  if (baseHeight < -35) {
     const zoneNoise = fractalNoise(x * 0.0004 + 3000, z * 0.0004 + 3000, 2, 0.5, 1);
-    if (zoneNoise > 0.72) {
+    if (zoneNoise > 0.75) {
       const n1 = smoothNoise(x * 0.0015 + 1000, z * 0.0015 + 1000);
       const n2 = smoothNoise(x * 0.003 + 2000, z * 0.003 + 2000);
       const d1 = Math.abs(n1 - 0.5);
@@ -159,14 +175,14 @@ export function getHeight(x, z) {
       const dist = Math.min(d1, d2);
       if (dist < 0.015) {
         const t = dist / 0.015;
-        const depth = (1 - t * t) * 100;
-        const zoneFade = Math.min(1, (zoneNoise - 0.72) / 0.08);
+        const depth = (1 - t * t) * 80;
+        const zoneFade = Math.min(1, (zoneNoise - 0.75) / 0.08);
         baseHeight -= depth * zoneFade;
       }
     }
   }
 
-  // === LAYER 8: DETAIL KECIL ===
+  // === DETAIL KECIL ===
   baseHeight += (smoothNoise(x * 0.1, z * 0.1) - 0.5) * 1;
 
   return baseHeight;
