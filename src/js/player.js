@@ -2,149 +2,167 @@ import { PLAYER } from './config.js';
 import { getHeight } from './noise.js';
 import { resolveCollisions } from './collision.js';
 
-// ===== CEK TIPE DARATAN =====
-function isLand(x, z) {
-  return getHeight(x, z) > 3;
-}
+// ===== HEALTH =====
+export const health = {
+  current: 100,
+  max: 100,
+  lastDamageTime: 0,
+  regenDelay: 5000, // 5 detik tanpa damage → regen
+  regenRate: 2      // 2 HP per detik
+};
 
-// Cek apakah titik ini di BENUA (area luas, tinggi tinggi)
-function isContinent(x, z) {
-  const h = getHeight(x, z);
-  if (h < 8) return false;
-
-  // Cek 8 titik radius 50 — harus daratan semua
-  const radius = 50;
-  let landCount = 0;
-  for (let i = 0; i < 8; i++) {
-    const angle = (i / 8) * Math.PI * 2;
-    const px = x + Math.cos(angle) * radius;
-    const pz = z + Math.sin(angle) * radius;
-    if (isLand(px, pz)) landCount++;
+export function takeDamage(amount) {
+  health.current = Math.max(0, health.current - amount);
+  health.lastDamageTime = performance.now();
+  if (typeof window.onPlayerDamage === 'function') {
+    window.onPlayerDamage(amount);
   }
-  return landCount >= 7;
+  return health.current;
 }
 
-// Cek apakah titik ini di PULAU SEDANG (area sedang, tinggi sedang)
-function isMediumIsland(x, z) {
-  const h = getHeight(x, z);
-  if (h < 5 || h > 15) return false;
-
-  // Cek 8 titik radius 25 — minimal 5 daratan (bukan benua, tapi cukup luas)
-  const radius = 25;
-  let landCount = 0;
-  for (let i = 0; i < 8; i++) {
-    const angle = (i / 8) * Math.PI * 2;
-    const px = x + Math.cos(angle) * radius;
-    const pz = z + Math.sin(angle) * radius;
-    if (isLand(px, pz)) landCount++;
-  }
-  return landCount >= 5 && landCount <= 7;
+export function heal(amount) {
+  health.current = Math.min(health.max, health.current + amount);
 }
 
-// Cek apakah titik ini di PULAU KECIL (area kecil)
-function isSmallIsland(x, z) {
-  const h = getHeight(x, z);
-  if (h < 2 || h > 10) return false;
-
-  // Cek radius 15 — minimal 3 daratan (pulau kecil)
-  const radius = 15;
-  let landCount = 0;
-  for (let i = 0; i < 8; i++) {
-    const angle = (i / 8) * Math.PI * 2;
-    const px = x + Math.cos(angle) * radius;
-    const pz = z + Math.sin(angle) * radius;
-    if (isLand(px, pz)) landCount++;
-  }
-  return landCount >= 3 && landCount <= 5;
+export function isAlive() {
+  return health.current > 0;
 }
 
-// ===== SPAWN RANDOM =====
+// ===== PICKED ITEMS =====
+export const pickedItems = [];
+
+// ===== SPAWN =====
 function findSpawnPosition() {
-  // Pilih tipe spawn acak
-  const type = ['continent', 'medium', 'small'][Math.floor(Math.random() * 3)];
-  console.log('Spawn type:', type);
-
-  const candidates = [];
-  const attempts = 300;
-
-  for (let i = 0; i < attempts; i++) {
-    const x = (Math.random() - 0.5) * 15000;
-    const z = (Math.random() - 0.5) * 15000;
-
-    let ok = false;
-    if (type === 'continent') ok = isContinent(x, z);
-    else if (type === 'medium') ok = isMediumIsland(x, z);
-    else if (type === 'small') ok = isSmallIsland(x, z);
-
-    if (ok) {
-      candidates.push({ x, z, h: getHeight(x, z) });
-
-      // Cukup 10 kandidat
-      if (candidates.length >= 10) break;
-    }
-  }
-
-  // Kalau nemu kandidat, pilih acak
-  if (candidates.length > 0) {
-    const pick = candidates[Math.floor(Math.random() * candidates.length)];
-    console.log('Spawn at', pick.x.toFixed(0), pick.z.toFixed(0), 'h', pick.h.toFixed(1));
-    return pick;
-  }
-
-  // Fallback: cari daratan apa aja
-  for (let i = 0; i < 500; i++) {
-    const x = (Math.random() - 0.5) * 5000;
-    const z = (Math.random() - 0.5) * 5000;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const x = (Math.random() - 0.5) * 2000;
+    const z = (Math.random() - 0.5) * 2000;
     const h = getHeight(x, z);
-    if (h > 3 && h < 25) {
-      return { x, z, h };
+    if (h > 3 && h < 20) {
+      return { x, z, y: h };
     }
   }
-
-  // Fallback terakhir
-  return { x: 0, z: 0, h: getHeight(0, 0) };
+  return { x: 0, z: 0, y: getHeight(0, 0) };
 }
 
 const spawn = findSpawnPosition();
 
 export const player = {
   x: spawn.x,
-  y: spawn.h,
+  y: spawn.y,
   z: spawn.z,
   vy: 0,
-  onGround: true
+  onGround: true,
+  inWater: false,
+  waterDepth: 0,
+  isAttacking: false,
+  attackCooldown: 0
 };
 
+// ===== CHECK WATER =====
+function checkWater(x, y, z) {
+  const h = getHeight(x, z);
+  return h < 0 && y < 0;
+}
+
+// ===== UPDATE PLAYER =====
 export function updatePlayer(input, delta) {
+  const groundHeight = getHeight(player.x, player.z);
+  player.inWater = groundHeight < 0 && player.y < 0;
+  player.waterDepth = player.inWater ? Math.abs(groundHeight) : 0;
+
   const forwardX = -Math.sin(input.yaw);
   const forwardZ = -Math.cos(input.yaw);
   const rightX = Math.cos(input.yaw);
   const rightZ = -Math.sin(input.yaw);
 
-  let nx = player.x + (-input.joyY * forwardX + input.joyX * rightX) * PLAYER.speed * delta;
-  let nz = player.z + (-input.joyY * forwardZ + input.joyX * rightZ) * PLAYER.speed * delta;
+  // Kecepatan gerak — lebih lambat di air
+  const moveSpeed = player.inWater ? PLAYER.speed * 0.6 : PLAYER.speed;
+
+  let nx = player.x + (-input.joyY * forwardX + input.joyX * rightX) * moveSpeed * delta;
+  let nz = player.z + (-input.joyY * forwardZ + input.joyX * rightZ) * moveSpeed * delta;
 
   const resolved = resolveCollisions(nx, nz);
   player.x = resolved.x;
   player.z = resolved.z;
 
-  if (input.jumpRequested && player.onGround) {
-    player.vy = PLAYER.jumpSpeed;
-    player.onGround = false;
+  // === FISIKA AIR ===
+  if (player.inWater) {
+    if (player.y < 0) {
+      const depth = Math.abs(player.y);
+      const buoyancy = Math.min(depth * 0.5, 3);
+      player.vy += buoyancy * delta;
+      player.vy *= 0.95;
+    }
+    player.vy -= PLAYER.gravity * 0.3 * delta;
+  } else {
+    player.vy -= PLAYER.gravity * delta;
+  }
+
+  // Jump / swim up
+  if (input.jumpRequested) {
+    if (player.onGround) {
+      player.vy = PLAYER.jumpSpeed;
+      player.onGround = false;
+    } else if (player.inWater) {
+      player.vy = 3;
+    }
   }
   input.jumpRequested = false;
 
-  player.vy -= PLAYER.gravity * delta;
   player.y += player.vy * delta;
 
-  const groundY = getHeight(player.x, player.z);
-  if (player.y <= groundY) {
-    player.y = groundY;
+  // Ground check
+  if (player.y <= groundHeight) {
+    player.y = groundHeight;
     player.vy = 0;
     player.onGround = true;
   } else {
     player.onGround = false;
   }
 
+  // === HEALTH REGEN ===
+  const timeSinceDamage = performance.now() - health.lastDamageTime;
+  if (timeSinceDamage > health.regenDelay && health.current < health.max) {
+    heal(health.regenRate * delta);
+  }
+
+  // === ATTACK COOLDOWN ===
+  if (player.attackCooldown > 0) {
+    player.attackCooldown -= delta * 1000;
+  }
+
   return player;
+}
+
+// ===== ATTACK =====
+export function attack(target) {
+  if (player.attackCooldown > 0) return false;
+  player.attackCooldown = 500;
+  player.isAttacking = true;
+
+  setTimeout(() => {
+    player.isAttacking = false;
+  }, 200);
+
+  if (target && target.takeDamage) {
+    const damage = 20;
+    target.takeDamage(damage);
+    return true;
+  }
+  return false;
+}
+
+// ===== PICKUP =====
+export function pickUpItem(item) {
+  if (!item) return false;
+
+  const dx = item.x - player.x;
+  const dy = item.y - player.y;
+  const dz = item.z - player.z;
+  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+  if (dist > 3) return false;
+
+  pickedItems.push(item);
+  return true;
 }
