@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { getHeight } from './noise.js';
 
+// ===== STATE =====
 const dinos = [];
 let dinoTemplate = null;
 let dinoAnimations = {};
@@ -15,15 +16,18 @@ const SPAWN_CONFIG = {
   spawnInterval: 5,
   minLandHeight: 3,
   maxLandHeight: 30,
-  targetHeight: 15
+  targetHeight: 15  // tinggi dino dalam unit
 };
 
+// ===== LOAD MODEL =====
 export function loadDinoModel(onLoaded) {
   const loader = new GLTFLoader();
   loader.load(
     'assets/models/brontosaurus.glb',
     (gltf) => {
       dinoTemplate = gltf.scene;
+
+      // Auto-detect animasi
       gltf.animations.forEach((clip) => {
         const name = clip.name.toLowerCase();
         if (name.includes('walk') || name.includes('jalan')) dinoAnimations.walk = clip;
@@ -38,6 +42,7 @@ export function loadDinoModel(onLoaded) {
         }
       });
 
+      // Cek ukuran asli model
       const box = new THREE.Box3().setFromObject(dinoTemplate);
       const size = box.getSize(new THREE.Vector3());
       console.log('[DINO] Original size:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2));
@@ -47,12 +52,15 @@ export function loadDinoModel(onLoaded) {
       if (onLoaded) onLoaded();
     },
     undefined,
-    (err) => console.error('Gagal load:', err)
+    (err) => console.error('Gagal load brontosaurus.glb:', err)
   );
 }
 
-export function isDinoLoaded() { return loaded; }
+export function isDinoLoaded() {
+  return loaded;
+}
 
+// ===== SPAWN DINO =====
 export function spawnDino(x, z, scene) {
   if (!dinoTemplate) return null;
   const h = getHeight(x, z);
@@ -62,6 +70,7 @@ export function spawnDino(x, z, scene) {
     ? THREE.SkeletonUtils.clone(dinoTemplate)
     : dinoTemplate.clone(true);
 
+  // === AUTO-SCALE ===
   const box = new THREE.Box3().setFromObject(model);
   const size = box.getSize(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
@@ -70,8 +79,9 @@ export function spawnDino(x, z, scene) {
 
   console.log('[DINO] Original:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2));
   console.log('[DINO] Auto-scale:', autoScale.toFixed(3));
+  console.log('[DINO] Terrain height at spawn:', h.toFixed(1));
 
-  // DEBUG: warna merah
+  // === DEBUG: WARNAI MERAH ===
   model.traverse((child) => {
     if (child.isMesh) {
       child.visible = true;
@@ -80,10 +90,8 @@ export function spawnDino(x, z, scene) {
     }
   });
 
-  const boxAfterAll = new THREE.Box3().setFromObject(model);
-  const yOffset = -boxAfterAll.min.y + h;
-
-  model.position.set(x, yOffset, z);
+  // === PAKSA Y = HEIGHT TERRAIN ===
+  model.position.set(x, h, z);
   model.rotation.y = Math.random() * Math.PI * 2;
   scene.add(model);
 
@@ -92,10 +100,10 @@ export function spawnDino(x, z, scene) {
     new THREE.BoxGeometry(3, 3, 3),
     new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
   );
-  debugBox.position.set(x, yOffset + 1.5, z);
+  debugBox.position.set(x, h + 1.5, z);
   scene.add(debugBox);
 
-  console.log('[DINO] Spawn pos:', x.toFixed(1), yOffset.toFixed(1), z.toFixed(1));
+  console.log('[DINO] Spawn at:', x.toFixed(1), h.toFixed(1), z.toFixed(1));
 
   const mixer = new THREE.AnimationMixer(model);
   const actions = {};
@@ -127,6 +135,7 @@ export function spawnDino(x, z, scene) {
   return dino;
 }
 
+// ===== AUTO SPAWN =====
 let spawnTimer = 0;
 
 export function autoSpawnDinos(player, scene, delta) {
@@ -143,24 +152,35 @@ export function autoSpawnDinos(player, scene, delta) {
     const dist = SPAWN_CONFIG.minDistance + Math.random() * (SPAWN_CONFIG.maxDistance - SPAWN_CONFIG.minDistance);
     const x = player.x + Math.cos(angle) * dist;
     const z = player.z + Math.sin(angle) * dist;
+
     const h = getHeight(x, z);
     if (h < SPAWN_CONFIG.minLandHeight || h > SPAWN_CONFIG.maxLandHeight) continue;
+
     const dino = spawnDino(x, z, scene);
     if (dino) break;
   }
 }
 
+// ===== DESPAWN =====
 export function despawnFarDinos(player, scene) {
   for (let i = dinos.length - 1; i >= 0; i--) {
     const dino = dinos[i];
     const dist = Math.hypot(dino.x - player.x, dino.z - player.z);
     if (dist > SPAWN_CONFIG.despawnDistance) {
       scene.remove(dino.model);
+      dino.model.traverse((child) => {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) {
+          if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+          else child.material.dispose();
+        }
+      });
       dinos.splice(i, 1);
     }
   }
 }
 
+// ===== GANTI ANIMASI =====
 function setAction(dino, actionName) {
   if (dino.currentAction === actionName) return;
   if (!dino.actions[actionName]) return;
@@ -171,6 +191,7 @@ function setAction(dino, actionName) {
   dino.currentAction = actionName;
 }
 
+// ===== AI UPDATE =====
 export function updateDinos(player, delta, onAttackPlayer) {
   for (const dino of dinos) {
     if (dino.state === 'dead') {
@@ -216,6 +237,7 @@ export function updateDinos(player, delta, onAttackPlayer) {
   }
 }
 
+// ===== DAMAGE =====
 export function damageDino(dino, amount) {
   if (dino.state === 'dead') return;
   dino.hp -= amount;
@@ -226,4 +248,6 @@ export function damageDino(dino, amount) {
   }
 }
 
-export function getDinos() { return dinos; }
+export function getDinos() {
+  return dinos;
+}
