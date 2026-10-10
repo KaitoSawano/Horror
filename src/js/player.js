@@ -2,7 +2,6 @@ import { PLAYER } from './config.js';
 import { getHeight } from './noise.js';
 import { resolveCollisions } from './collision.js';
 
-// ===== HEALTH =====
 export const health = {
   current: 100,
   max: 100,
@@ -14,9 +13,7 @@ export const health = {
 export function takeDamage(amount) {
   health.current = Math.max(0, health.current - amount);
   health.lastDamageTime = performance.now();
-  if (typeof window.onPlayerDamage === 'function') {
-    window.onPlayerDamage(amount);
-  }
+  if (typeof window.onPlayerDamage === 'function') window.onPlayerDamage(amount);
   return health.current;
 }
 
@@ -28,75 +25,45 @@ export function isAlive() {
   return health.current > 0;
 }
 
-// ===== PICKED ITEMS =====
 export const pickedItems = [];
 
-// ===== SPAWN =====
-// Cek apakah area di sekitar titik = DARATAN (bukan pantai/air)
 function isSolidLand(x, z) {
-  const checkRadius = 30;
+  const r = 30;
   const points = [
-    [0, 0],
-    [-checkRadius, 0], [checkRadius, 0],
-    [0, -checkRadius], [0, checkRadius],
-    [-checkRadius, -checkRadius], [checkRadius, -checkRadius],
-    [-checkRadius, checkRadius], [checkRadius, checkRadius]
+    [0,0], [-r,0], [r,0], [0,-r], [0,r],
+    [-r,-r], [r,-r], [-r,r], [r,r]
   ];
-
   for (const [dx, dz] of points) {
     const h = getHeight(x + dx, z + dz);
-    // Semua titik harus daratan (height > 3)
-    if (h < 3) return false;
-    // Dan jangan di gunung tinggi
-    if (h > 35) return false;
+    if (h < 3 || h > 35) return false;
   }
   return true;
 }
 
 function findSpawnPosition() {
-  // Coba 500 kali di range luas
-  for (let attempt = 0; attempt < 500; attempt++) {
+  for (let i = 0; i < 500; i++) {
     const x = (Math.random() - 0.5) * 20000;
     const z = (Math.random() - 0.5) * 20000;
-
-    if (isSolidLand(x, z)) {
-      const h = getHeight(x, z);
-      console.log('Spawn found at', x.toFixed(0), z.toFixed(0), 'h=', h.toFixed(1));
-      return { x, z, y: h };
-    }
+    if (isSolidLand(x, z)) return { x, z, y: getHeight(x, z) };
   }
-
-  // Fallback: cari daratan lebih luas
-  for (let attempt = 0; attempt < 2000; attempt++) {
+  for (let i = 0; i < 2000; i++) {
     const x = (Math.random() - 0.5) * 100000;
     const z = (Math.random() - 0.5) * 100000;
-
-    if (isSolidLand(x, z)) {
-      const h = getHeight(x, z);
-      return { x, z, y: h };
-    }
+    if (isSolidLand(x, z)) return { x, z, y: getHeight(x, z) };
   }
-
-  // Fallback terakhir: cari daratan mana aja (tanpa cek sekitar)
-  for (let attempt = 0; attempt < 5000; attempt++) {
+  for (let i = 0; i < 5000; i++) {
     const x = (Math.random() - 0.5) * 200000;
     const z = (Math.random() - 0.5) * 200000;
     const h = getHeight(x, z);
-    if (h > 5 && h < 30) {
-      return { x, z, y: h };
-    }
+    if (h > 5 && h < 30) return { x, z, y: h };
   }
-
-  // Gagal total: spawn di (0, 0) — tapi mungkin di air
   return { x: 0, z: 0, y: getHeight(0, 0) };
 }
 
 const spawn = findSpawnPosition();
 
 export const player = {
-  x: spawn.x,
-  y: spawn.y,
-  z: spawn.z,
+  x: spawn.x, y: spawn.y, z: spawn.z,
   vy: 0,
   onGround: true,
   inWater: false,
@@ -105,7 +72,6 @@ export const player = {
   attackCooldown: 0
 };
 
-// ===== UPDATE PLAYER =====
 export function updatePlayer(input, delta) {
   const groundHeight = getHeight(player.x, player.z);
   player.inWater = groundHeight < 0 && player.y < 0;
@@ -125,7 +91,6 @@ export function updatePlayer(input, delta) {
   player.x = resolved.x;
   player.z = resolved.z;
 
-  // === FISIKA AIR ===
   if (player.inWater) {
     if (player.y < 0) {
       const depth = Math.abs(player.y);
@@ -158,49 +123,35 @@ export function updatePlayer(input, delta) {
     player.onGround = false;
   }
 
-  // === HEALTH REGEN ===
   const timeSinceDamage = performance.now() - health.lastDamageTime;
   if (timeSinceDamage > health.regenDelay && health.current < health.max) {
     heal(health.regenRate * delta);
   }
 
-  // === ATTACK COOLDOWN ===
-  if (player.attackCooldown > 0) {
-    player.attackCooldown -= delta * 1000;
-  }
+  if (player.attackCooldown > 0) player.attackCooldown -= delta * 1000;
 
   return player;
 }
 
-// ===== ATTACK =====
 export function attack(target) {
   if (player.attackCooldown > 0) return false;
   player.attackCooldown = 500;
   player.isAttacking = true;
-
-  setTimeout(() => {
-    player.isAttacking = false;
-  }, 200);
-
+  setTimeout(() => { player.isAttacking = false; }, 200);
   if (target && target.takeDamage) {
-    const damage = 20;
-    target.takeDamage(damage);
+    target.takeDamage(20);
     return true;
   }
   return false;
 }
 
-// ===== PICKUP =====
 export function pickUpItem(item) {
   if (!item) return false;
-
   const dx = item.x - player.x;
   const dy = item.y - player.y;
   const dz = item.z - player.z;
-  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
-
+  const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
   if (dist > 3) return false;
-
   pickedItems.push(item);
   return true;
 }
