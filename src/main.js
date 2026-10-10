@@ -1,19 +1,14 @@
 import * as THREE from 'three';
-
-// Import semua module
 import { getHeight } from './js/noise.js';
 import { createLights } from './js/lights.js';
 import { createSky, updateSky } from './js/sky.js';
 import { createWater, updateWater } from './js/water.js';
 import { updateChunks, processChunkQueue, getChunks, chunkKey } from './js/terrain.js';
 import { buildChunkObjects } from './js/scatter.js';
-import { player, updatePlayer } from './js/player.js';
-import { placeVoxel, removeVoxelAt, getVoxelBlocks, getVoxelCount } from './js/voxel.js';
-import {
-  inventory, hotbar, initInventoryUI,
-  getActiveItem, consumeActiveItem, addItemToInventory,
-  selectHotbar, renderHotbar, renderInventory
-} from './js/inventory.js';
+import { player, updatePlayer, takeDamage, isAlive } from './js/player.js';
+import { loadDinoModel, updateDinos, damageDino, getDinos, isDinoLoaded } from './js/dinos.js';
+import { placeVoxel, removeVoxelAt, getVoxelBlocks } from './js/voxel.js';
+import { initInventoryUI, getActiveItem, consumeActiveItem, addItemToInventory, selectHotbar } from './js/inventory.js';
 import { initInput, input, setStarted, setInvOpen } from './js/input.js';
 import { updateUI } from './js/ui.js';
 import { PLAYER } from './js/config.js';
@@ -25,12 +20,7 @@ function debug(msg, isError = false) {
   debugEl.textContent = msg;
   debugEl.style.color = isError ? '#ff4444' : '#0f0';
 }
-window.addEventListener('error', (e) => {
-  debug('ERR: ' + (e.message || 'unknown'), true);
-});
-window.addEventListener('unhandledrejection', (e) => {
-  debug('REJECT: ' + (e.reason && e.reason.message ? e.reason.message : e.reason), true);
-});
+window.addEventListener('error', (e) => debug('ERR: ' + (e.message || 'unknown'), true));
 
 // ===== SETUP =====
 const scene = new THREE.Scene();
@@ -52,11 +42,16 @@ if (screen.orientation && screen.orientation.lock) {
   screen.orientation.lock('landscape').catch(() => {});
 }
 
-// ===== INIT MODULES =====
 const lights = createLights(scene);
 const sky = createSky(scene);
 createWater(scene);
 initInventoryUI();
+
+// ===== LOAD DINO =====
+debug('Loading dino model...');
+loadDinoModel(() => {
+  debug('Dino ready');
+});
 
 // ===== RAYCAST =====
 const raycaster = new THREE.Raycaster();
@@ -82,46 +77,66 @@ function raycastVoxel() {
   return hits.length > 0 ? hits[0] : null;
 }
 
-// ===== AKSI TARUH =====
+// Cek apakah ada dino di depan (buat attack)
+function raycastDino() {
+  const meshes = [];
+  getDinos().forEach((d) => {
+    if (d.state !== 'dead') meshes.push(d.model);
+  });
+  raycaster.set(camera.position, getLookDirection());
+  const hits = raycaster.intersectObjects(meshes, true);
+  if (hits.length === 0) return null;
+
+  // Cari dino yang punya mesh itu
+  const hitObj = hits[0].object;
+  for (const dino of getDinos()) {
+    let p = hitObj;
+    while (p) {
+      if (p === dino.model) return dino;
+      p = p.parent;
+    }
+  }
+  return null;
+}
+
+// ===== AKSI =====
 function onPlace() {
   const item = getActiveItem();
   if (!item || item.count <= 0) return;
 
-  // Prioritas 1: taruh di sisi voxel
   const voxelHit = raycastVoxel();
   if (voxelHit) {
     const normal = voxelHit.face.normal.clone();
     const pos = voxelHit.object.position.clone().add(normal.multiplyScalar(1.0));
-    if (placeVoxel(pos.x, pos.y, pos.z, item.id, scene)) {
-      consumeActiveItem();
-    }
+    if (placeVoxel(pos.x, pos.y, pos.z, item.id, scene)) consumeActiveItem();
     return;
   }
 
-  // Prioritas 2: taruh di atas terrain
   const terrainHit = raycastTerrain();
   if (terrainHit) {
     const pos = terrainHit.point.clone();
     pos.y = Math.round(pos.y + 0.5);
     pos.x = Math.round(pos.x);
     pos.z = Math.round(pos.z);
-    if (placeVoxel(pos.x, pos.y, pos.z, item.id, scene)) {
-      consumeActiveItem();
-    }
+    if (placeVoxel(pos.x, pos.y, pos.z, item.id, scene)) consumeActiveItem();
   }
 }
 
-// ===== AKSI HANCUR =====
 function onBreak() {
+  // Prioritas 1: pukul dino
+  const dino = raycastDino();
+  if (dino) {
+    damageDino(dino, 20);
+    return;
+  }
+
+  // Prioritas 2: hancurin blok
   const hit = raycastVoxel();
-  if (!hit) return;
-
-  const mesh = hit.object;
-  const id = mesh.userData.voxelId;
-  removeVoxelAt(mesh.position.x, mesh.position.y, mesh.position.z, scene);
-
-  if (id) {
-    addItemToInventory(id);
+  if (hit) {
+    const mesh = hit.object;
+    const id = mesh.userData.voxelId;
+    removeVoxelAt(mesh.position.x, mesh.position.y, mesh.position.z, scene);
+    if (id) addItemToInventory(id);
   }
 }
 
@@ -162,33 +177,29 @@ function animate() {
   const delta = Math.min(clock.getDelta(), 0.1);
   frameCount++;
 
-  // Update sky (matahari, bulan, bintang, warna langit)
   updateSky(scene, lights, player, delta);
-
-  // Update air
   updateWater(player.x, player.z, delta);
 
-  if (started) {
-    // Update player
+  if (started && isAlive()) {
     updatePlayer(input, delta);
 
-    // Kamera
     camera.position.set(player.x, player.y + PLAYER.eyeHeight, player.z);
     camera.rotation.y = input.yaw;
     camera.rotation.x = input.pitch;
 
-    // Update chunks tiap 10 frame
     if (frameCount % 10 === 0) {
       updateChunks(player.x, player.z, scene);
     }
 
-    // Update UI
+    // Update AI dino
+    updateDinos(player, delta, (damage) => {
+      takeDamage(damage);
+    });
+
     updateUI(player);
   }
 
-  // Process chunk queue (generate 1 chunk per frame)
   processChunkQueue(scene, player, buildChunkObjects);
-
   renderer.render(scene, camera);
 }
 animate();
