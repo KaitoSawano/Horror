@@ -5,14 +5,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Open World</title>
   <link rel="stylesheet" href="style.css" />
+  <script>
+    window.addEventListener('error', function(e) {
+      var el = document.getElementById('debug');
+      if (el) {
+        el.textContent = 'ERR: ' + (e.message || e.error || 'unknown');
+        el.style.color = '#ff4444';
+        el.style.display = 'block';
+        el.style.background = 'rgba(0,0,0,0.9)';
+      }
+      console.error('Global error:', e);
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      var el = document.getElementById('debug');
+      if (el) {
+        el.textContent = 'REJECT: ' + (e.reason || 'unknown');
+        el.style.color = '#ff4444';
+        el.style.display = 'block';
+      }
+    });
+  </script>
 </head>
 <body>
   <div id="crosshair">+</div>
   <button id="hint">Tap untuk mulai</button>
   <div id="pos">X: 0 Z: 0</div>
-  <div id="debug">Loading...</div>
+  <div id="debug" style="display:block;">JS Loading...</div>
 
-  <!-- Hotbar -->
   <div id="hotbar">
     <div class="slot" data-slot="0"><span class="slot-num">1</span><div class="slot-icon"></div></div>
     <div class="slot" data-slot="1"><span class="slot-num">2</span><div class="slot-icon"></div></div>
@@ -21,7 +40,6 @@
     <div class="slot" data-slot="4"><span class="slot-num">5</span><div class="slot-icon"></div></div>
   </div>
 
-  <!-- Inventory -->
   <div id="inventory">
     <div id="inv-header">
       <span>Inventory</span>
@@ -30,21 +48,19 @@
     <div id="inv-grid"></div>
   </div>
 
-  <!-- Tombol buka inventory -->
   <div id="inv-btn">🎒</div>
 
-  <!-- Joystick -->
   <div id="joystick-base">
     <div id="joystick-knob"></div>
   </div>
 
-  <!-- Tombol lompat -->
   <div id="jump-btn">↑</div>
 
   <script type="importmap">
   {
     "imports": {
-      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
     }
   }
   </script>
