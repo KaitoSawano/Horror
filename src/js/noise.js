@@ -1,4 +1,4 @@
-// Fungsi noise & heightmap — bioma + benua + pulau
+// Fungsi noise & heightmap — bioma + benua + pulau + lautan dinamis
 
 function hash(x, z) {
   let n = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
@@ -43,21 +43,38 @@ export function getBiome(x, z) {
   const temp = fractalNoise(x * 0.0003 + 500, z * 0.0003 + 500, 3, 0.5, 1);
   const humid = fractalNoise(x * 0.0003 + 1500, z * 0.0003 + 1500, 3, 0.5, 1);
 
-  if (temp < 0.35) return 2;                     // salju (dingin)
-  if (temp > 0.7 && humid < 0.4) return 1;      // gurun (panas, kering)
-  if (temp > 0.6 && humid > 0.6) return 3;      // tropis (panas, basah)
-  return 0;                                       // hutan (default)
+  if (temp < 0.35) return 2;
+  if (temp > 0.7 && humid < 0.4) return 1;
+  if (temp > 0.6 && humid > 0.6) return 3;
+  return 0;
 }
 
-// ===== KONTINEN =====
+// ===== KONTINEN (dengan lautan dinamis) =====
 function getLandValue(x, z) {
-  const mega = fractalNoise(x, z, 3, 0.5, 0.0003);
-  const medium = fractalNoise(x + 10000, z + 10000, 3, 0.5, 0.001);
-  const bigIsland = fractalNoise(x + 20000, z + 20000, 3, 0.5, 0.0025);
-  const smallIsland = fractalNoise(x + 30000, z + 30000, 3, 0.5, 0.006);
+  // Layer 1: Benua raksasa — skala sangat besar
+  // Bikin lautan SANGAT LUAS di antara benua
+  const mega = fractalNoise(x, z, 3, 0.5, 0.00025);
 
-  const combined = (mega + medium + bigIsland + smallIsland) / 4;
-  return (combined - 0.5) * 2;
+  // Layer 2: Benua sedang — skala besar
+  const medium = fractalNoise(x + 10000, z + 10000, 3, 0.5, 0.0008);
+
+  // Layer 3: Pulau besar — skala sedang
+  const bigIsland = fractalNoise(x + 20000, z + 20000, 3, 0.5, 0.002);
+
+  // Layer 4: Pulau kecil — skala kecil
+  const smallIsland = fractalNoise(x + 30000, z + 30000, 3, 0.5, 0.005);
+
+  // Bobot:
+  // - Mega 40% (benua raksasa, pemisah lautan luas)
+  // - Medium 25% (benua sedang)
+  // - Big Island 20% (pulau besar)
+  // - Small Island 15% (pulau kecil)
+  const combined = mega * 0.4 + medium * 0.25 + bigIsland * 0.2 + smallIsland * 0.15;
+
+  // Map ke -1 sampai +1
+  // Geser threshold biar lautan lebih dominan (Minecraft-like)
+  // Threshold 0.52 → 52% laut, 48% darat
+  return (combined - 0.52) * 2;
 }
 
 // ===== HEIGHT UTAMA =====
@@ -67,6 +84,12 @@ export function getHeight(x, z) {
   let baseHeight;
 
   if (cont < 0) {
+    // === LAUT ===
+    // Pakai 4 zona dengan jarak yang beda-beda
+    // Zona 1 (dangkal): -0.05 → ~50 unit
+    // Zona 2 (sedang): -0.15 → ~100 unit
+    // Zona 3 (drop-off): -0.2 → ~50 unit
+    // Zona 4 (dalam): -0.2 → -1 → ~800 unit (LAUT LUAS!)
     if (cont > -0.05) {
       const t = smoothstep(0, -0.05, cont);
       baseHeight = -t * 0.5;
@@ -81,6 +104,7 @@ export function getHeight(x, z) {
       baseHeight = -25 - t * 15;
     }
   } else {
+    // === DARATAN ===
     if (cont < 0.3) {
       const t = smoothstep(0, 0.3, cont);
       baseHeight = t * 10;
@@ -99,7 +123,6 @@ export function getHeight(x, z) {
     baseHeight += (smoothNoise(x * 0.02, z * 0.02) - 0.5) * 5 * landFactor;
     baseHeight += (smoothNoise(x * 0.05, z * 0.05) - 0.5) * 2 * landFactor;
 
-    // Gunung lebih tinggi di bioma salju
     const biome = getBiome(x, z);
     const mountainMult = biome === 2 ? 25 : 15;
 
