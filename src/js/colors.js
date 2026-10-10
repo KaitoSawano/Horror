@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { COLORS } from './config.js';
 import { getHeight } from './noise.js';
 
+const C_ABYSS = new THREE.Color(0x020208);
+const C_TRENCH = new THREE.Color(0x061428);
 const C_DEEP_WATER = new THREE.Color(0x0a2a4a);
 const C_WATER = new THREE.Color(COLORS.water);
 const C_SHALLOW = new THREE.Color(0x2a7ab0);
@@ -13,14 +15,20 @@ const C_ROCK_DARK = new THREE.Color(COLORS.rockDark);
 const C_SNOW = new THREE.Color(COLORS.snow);
 
 export function getVertexColor(h, wx, wz) {
-  // Laut dalam
-  if (h < -10) return C_DEEP_WATER;
-  // Laut sedang
-  if (h < -3) return C_WATER;
-  // Laut dangkal / sungai / danau
-  if (h < -0.5) return C_SHALLOW;
-  // Pantai
-  if (h < 1) return C_SAND;
+  // Palung — hampir hitam
+  if (h < -70) return C_ABYSS;
+  if (h < -30) {
+    const t = (h + 70) / 40;
+    return C_ABYSS.clone().lerp(C_TRENCH, t);
+  }
+  if (h < -10) return C_TRENCH;
+  if (h < -3) {
+    const t = (h + 10) / 7;
+    return C_TRENCH.clone().lerp(C_DEEP_WATER, t);
+  }
+  if (h < -0.5) return C_WATER;
+  if (h < 0.5) return C_SHALLOW;
+  if (h < 1.5) return C_SAND;
 
   const eps = 1.5;
   const hx = getHeight(wx + eps, wz) - getHeight(wx - eps, wz);
