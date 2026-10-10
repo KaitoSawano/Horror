@@ -1,24 +1,16 @@
 import { getTimeOfDay } from './sky.js';
 import { getVoxelCount } from './voxel.js';
 import { health } from './player.js';
+import { getDinos } from './dinos.js';
 
 const posEl = document.getElementById('pos');
 
-// Bikin health bar otomatis kalau belum ada di HTML
 let healthBar = document.getElementById('health-bar');
 if (!healthBar) {
   healthBar = document.createElement('div');
   healthBar.id = 'health-bar';
   healthBar.innerHTML = '<div id="health-fill"></div>';
   document.body.appendChild(healthBar);
-}
-
-// Bikin damage overlay kalau belum ada
-let damageOverlay = document.getElementById('damage-overlay');
-if (!damageOverlay) {
-  damageOverlay = document.createElement('div');
-  damageOverlay.id = 'damage-overlay';
-  document.body.appendChild(damageOverlay);
 }
 
 export function updateUI(player) {
@@ -29,18 +21,32 @@ export function updateUI(player) {
   const minute = Math.floor((t * 24 - hour) * 60);
   const timeStr = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
 
-  // Status air
-  let waterStatus = '';
-  if (player.inWater) {
-    waterStatus = ' | 🌊 ' + player.waterDepth.toFixed(1) + 'm';
+  const dinos = getDinos();
+  const totalDinos = dinos.length;
+  const aliveDinos = dinos.filter(d => d.state !== 'dead').length;
+
+  let nearestDist = 9999;
+  let nearestState = '-';
+  for (const d of dinos) {
+    if (d.state === 'dead') continue;
+    const dist = Math.hypot(d.x - player.x, d.z - player.z);
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearestState = d.state;
+    }
   }
 
-  // Status HP
+  const dinoStr = nearestDist < 9999
+    ? ` | Dino: ${aliveDinos}/${totalDinos} | Deket: ${nearestDist.toFixed(0)}m (${nearestState})`
+    : ` | Dino: ${aliveDinos}/${totalDinos}`;
+
+  let waterStatus = '';
+  if (player.inWater) waterStatus = ' | 🌊 ' + player.waterDepth.toFixed(1) + 'm';
+
   const hpStr = Math.ceil(health.current) + '/' + health.max;
 
-  posEl.textContent = `X: ${player.x.toFixed(0)} Z: ${player.z.toFixed(0)} Y: ${player.y.toFixed(1)} | ${timeStr} | HP: ${hpStr} | Blok: ${getVoxelCount()}${waterStatus}`;
+  posEl.textContent = `X: ${player.x.toFixed(0)} Z: ${player.z.toFixed(0)} Y: ${player.y.toFixed(1)} | ${timeStr} | HP: ${hpStr} | Blok: ${getVoxelCount()}${dinoStr}${waterStatus}`;
 
-  // Update health bar
   const fill = document.getElementById('health-fill');
   if (fill) {
     const pct = (health.current / health.max) * 100;
