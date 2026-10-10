@@ -7,8 +7,8 @@ export const health = {
   current: 100,
   max: 100,
   lastDamageTime: 0,
-  regenDelay: 5000, // 5 detik tanpa damage → regen
-  regenRate: 2      // 2 HP per detik
+  regenDelay: 5000,
+  regenRate: 2
 };
 
 export function takeDamage(amount) {
@@ -32,15 +32,62 @@ export function isAlive() {
 export const pickedItems = [];
 
 // ===== SPAWN =====
+// Cek apakah area di sekitar titik = DARATAN (bukan pantai/air)
+function isSolidLand(x, z) {
+  const checkRadius = 30;
+  const points = [
+    [0, 0],
+    [-checkRadius, 0], [checkRadius, 0],
+    [0, -checkRadius], [0, checkRadius],
+    [-checkRadius, -checkRadius], [checkRadius, -checkRadius],
+    [-checkRadius, checkRadius], [checkRadius, checkRadius]
+  ];
+
+  for (const [dx, dz] of points) {
+    const h = getHeight(x + dx, z + dz);
+    // Semua titik harus daratan (height > 3)
+    if (h < 3) return false;
+    // Dan jangan di gunung tinggi
+    if (h > 35) return false;
+  }
+  return true;
+}
+
 function findSpawnPosition() {
-  for (let attempt = 0; attempt < 50; attempt++) {
-    const x = (Math.random() - 0.5) * 2000;
-    const z = (Math.random() - 0.5) * 2000;
-    const h = getHeight(x, z);
-    if (h > 3 && h < 20) {
+  // Coba 500 kali di range luas
+  for (let attempt = 0; attempt < 500; attempt++) {
+    const x = (Math.random() - 0.5) * 20000;
+    const z = (Math.random() - 0.5) * 20000;
+
+    if (isSolidLand(x, z)) {
+      const h = getHeight(x, z);
+      console.log('Spawn found at', x.toFixed(0), z.toFixed(0), 'h=', h.toFixed(1));
       return { x, z, y: h };
     }
   }
+
+  // Fallback: cari daratan lebih luas
+  for (let attempt = 0; attempt < 2000; attempt++) {
+    const x = (Math.random() - 0.5) * 100000;
+    const z = (Math.random() - 0.5) * 100000;
+
+    if (isSolidLand(x, z)) {
+      const h = getHeight(x, z);
+      return { x, z, y: h };
+    }
+  }
+
+  // Fallback terakhir: cari daratan mana aja (tanpa cek sekitar)
+  for (let attempt = 0; attempt < 5000; attempt++) {
+    const x = (Math.random() - 0.5) * 200000;
+    const z = (Math.random() - 0.5) * 200000;
+    const h = getHeight(x, z);
+    if (h > 5 && h < 30) {
+      return { x, z, y: h };
+    }
+  }
+
+  // Gagal total: spawn di (0, 0) — tapi mungkin di air
   return { x: 0, z: 0, y: getHeight(0, 0) };
 }
 
@@ -58,12 +105,6 @@ export const player = {
   attackCooldown: 0
 };
 
-// ===== CHECK WATER =====
-function checkWater(x, y, z) {
-  const h = getHeight(x, z);
-  return h < 0 && y < 0;
-}
-
 // ===== UPDATE PLAYER =====
 export function updatePlayer(input, delta) {
   const groundHeight = getHeight(player.x, player.z);
@@ -75,7 +116,6 @@ export function updatePlayer(input, delta) {
   const rightX = Math.cos(input.yaw);
   const rightZ = -Math.sin(input.yaw);
 
-  // Kecepatan gerak — lebih lambat di air
   const moveSpeed = player.inWater ? PLAYER.speed * 0.6 : PLAYER.speed;
 
   let nx = player.x + (-input.joyY * forwardX + input.joyX * rightX) * moveSpeed * delta;
@@ -98,7 +138,6 @@ export function updatePlayer(input, delta) {
     player.vy -= PLAYER.gravity * delta;
   }
 
-  // Jump / swim up
   if (input.jumpRequested) {
     if (player.onGround) {
       player.vy = PLAYER.jumpSpeed;
@@ -111,7 +150,6 @@ export function updatePlayer(input, delta) {
 
   player.y += player.vy * delta;
 
-  // Ground check
   if (player.y <= groundHeight) {
     player.y = groundHeight;
     player.vy = 0;
