@@ -16,7 +16,7 @@ const SPAWN_CONFIG = {
   spawnInterval: 5,
   minLandHeight: 3,
   maxLandHeight: 30,
-  targetHeight: 15  // tinggi dino dalam unit
+  targetHeight: 15
 };
 
 // ===== LOAD MODEL =====
@@ -27,7 +27,6 @@ export function loadDinoModel(onLoaded) {
     (gltf) => {
       dinoTemplate = gltf.scene;
 
-      // Auto-detect animasi
       gltf.animations.forEach((clip) => {
         const name = clip.name.toLowerCase();
         if (name.includes('walk') || name.includes('jalan')) dinoAnimations.walk = clip;
@@ -42,7 +41,6 @@ export function loadDinoModel(onLoaded) {
         }
       });
 
-      // Cek ukuran asli model
       const box = new THREE.Box3().setFromObject(dinoTemplate);
       const size = box.getSize(new THREE.Vector3());
       console.log('[DINO] Original size:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2));
@@ -79,31 +77,36 @@ export function spawnDino(x, z, scene) {
 
   console.log('[DINO] Original:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2));
   console.log('[DINO] Auto-scale:', autoScale.toFixed(3));
-  console.log('[DINO] Terrain height at spawn:', h.toFixed(1));
 
   // === DEBUG: WARNAI MERAH ===
   model.traverse((child) => {
     if (child.isMesh) {
       child.visible = true;
       child.frustumCulled = false;
-      child.material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+      child.material = new THREE.MeshBasicMaterial({ color: 0xff0000, side: THREE.DoubleSide });
     }
   });
 
-  // === PAKSA Y = HEIGHT TERRAIN ===
-  model.position.set(x, h, z);
+  // === HITUNG TINGGI MODEL ===
+  const boxFinal = new THREE.Box3().setFromObject(model);
+  const modelHeight = boxFinal.max.y - boxFinal.min.y;
+  const yPos = h + modelHeight / 2;
+
+  console.log('[DINO] Model height:', modelHeight.toFixed(2), '| Y:', yPos.toFixed(2));
+
+  model.position.set(x, yPos, z);
   model.rotation.y = Math.random() * Math.PI * 2;
   scene.add(model);
 
-  // === DEBUG: KOTAK MERAH WIREFRAME ===
+  // === DEBUG: KOTAK MERAH ===
   const debugBox = new THREE.Mesh(
-    new THREE.BoxGeometry(3, 3, 3),
+    new THREE.BoxGeometry(modelHeight, modelHeight, modelHeight),
     new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
   );
-  debugBox.position.set(x, h + 1.5, z);
+  debugBox.position.set(x, yPos, z);
   scene.add(debugBox);
 
-  console.log('[DINO] Spawn at:', x.toFixed(1), h.toFixed(1), z.toFixed(1));
+  console.log('[DINO] Spawn at:', x.toFixed(1), yPos.toFixed(1), z.toFixed(1));
 
   const mixer = new THREE.AnimationMixer(model);
   const actions = {};
