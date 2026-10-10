@@ -33,7 +33,6 @@ function fractalNoise(x, z, octaves, persistence, scale) {
   return total / maxValue;
 }
 
-// Smoothstep — transisi halus
 function smoothstep(edge0, edge1, x) {
   const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
   return t * t * (3 - 2 * t);
@@ -60,47 +59,47 @@ function getIslandNoise(x, z) {
 
 // ===== HEIGHT UTAMA =====
 export function getHeight(x, z) {
-  // === BASE: SUPER KONTINEN ===
   const superCont = getSuperContinent(x, z);
-
-  // Map superCont ke height dengan 5 zona bertahap:
-  // -1.0 → -40 (laut dalam)
-  // -0.5 → -15 (laut sedang)
-  // -0.2 → -3 (air dangkal)
-  //  0.0 → 0 (bibir pantai)
-  // +0.5 → 15 (daratan)
-  // +1.0 → 30 (tengah benua)
 
   let baseHeight;
 
   if (superCont < 0) {
-    // === LAUT ===
-    // Pakai 3 zona biar drop-off bertahap
-    if (superCont > -0.2) {
-      // ZONA 1: AIR DANGKAL (0 sampai -3 unit)
-      // Dari bibir pantai (0) ke -3, jarak ~20 unit
-      const t = smoothstep(0, -0.2, superCont); // 0 di 0, 1 di -0.2
-      baseHeight = -t * 3;
-    } else if (superCont > -0.5) {
-      // ZONA 2: LAUT SEDANG (-3 sampai -15 unit)
-      // Dari -3 ke -15, jarak ~50 unit
-      const t = smoothstep(-0.2, -0.5, superCont); // 0 di -0.2, 1 di -0.5
-      baseHeight = -3 - t * 12;
+    // === LAUT — dengan DROP-OFF ===
+    // 4 zona:
+    // 1. Bibir pantai (superCont 0 sampai -0.05)  → 0 sampai -0.5
+    // 2. Paparan dangkal (superCont -0.05 sampai -0.15) → -0.5 sampai -3
+    // 3. DROP-OFF (superCont -0.15 sampai -0.2) → -3 sampai -25 (CURAM!)
+    // 4. Laut dalam (superCont -0.2 sampai -1) → -25 sampai -40
+
+    if (superCont > -0.05) {
+      // ZONA 1: BIBIR PANTAI
+      // Landai banget — 0 sampai -0.5 unit
+      const t = smoothstep(0, -0.05, superCont);
+      baseHeight = -t * 0.5;
+    } else if (superCont > -0.15) {
+      // ZONA 2: PAPARAN DANGKAL
+      // Landai — -0.5 sampai -3 unit
+      // Jarak: superCont -0.05 sampai -0.15 (10% siklus)
+      const t = smoothstep(-0.05, -0.15, superCont);
+      baseHeight = -0.5 - t * 2.5;
+    } else if (superCont > -0.2) {
+      // ZONA 3: DROP-OFF — CURAM!
+      // Dari -3 sampai -25 unit (22 unit drop!)
+      // Jarak: superCont -0.15 sampai -0.2 (5% siklus)
+      const t = smoothstep(-0.15, -0.2, superCont);
+      baseHeight = -3 - t * 22;
     } else {
-      // ZONA 3: LAUT DALAM (-15 sampai -40 unit)
-      // Dari -15 ke -40, jarak ~200 unit
-      const t = smoothstep(-0.5, -1, superCont); // 0 di -0.5, 1 di -1
-      baseHeight = -15 - t * 25;
+      // ZONA 4: LAUT DALAM
+      // Dari -25 sampai -40 unit
+      const t = smoothstep(-0.2, -1, superCont);
+      baseHeight = -25 - t * 15;
     }
   } else {
     // === DARATAN ===
-    // Pakai 2 zona
     if (superCont < 0.5) {
-      // ZONA DARATAN BAWAH (0 sampai +15)
       const t = smoothstep(0, 0.5, superCont);
       baseHeight = t * 15;
     } else {
-      // ZONA DARATAN ATAS (+15 sampai +30)
       const t = smoothstep(0.5, 1, superCont);
       baseHeight = 15 + t * 15;
     }
@@ -127,11 +126,9 @@ export function getHeight(x, z) {
   // === BUKIT & GUNUNG ===
   if (baseHeight > 8) {
     const landFactor = smoothstep(8, 20, baseHeight);
-
     baseHeight += (smoothNoise(x * 0.02, z * 0.02) - 0.5) * 5 * landFactor;
     baseHeight += (smoothNoise(x * 0.05, z * 0.05) - 0.5) * 2 * landFactor;
 
-    // Gunung
     if (baseHeight > 20) {
       const mountainNoise = smoothNoise(x * 0.003, z * 0.003);
       if (mountainNoise > 0.72) {
@@ -164,7 +161,7 @@ export function getHeight(x, z) {
     }
   }
 
-  // === PALUNG (cuma di laut sangat dalam) ===
+  // === PALUNG ===
   if (baseHeight < -35) {
     const zoneNoise = fractalNoise(x * 0.0004 + 3000, z * 0.0004 + 3000, 2, 0.5, 1);
     if (zoneNoise > 0.75) {
