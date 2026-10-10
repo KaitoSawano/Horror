@@ -26,7 +26,9 @@ export function buildRocks(cx, cz, scene) {
 
       // Cuma 20% cell yang punya batu
       if (r3 < 0.35 || r3 >= 0.55) continue;
-      if (h <= -1) continue;
+
+      // Skip kalau di bawah air atau di air
+      if (h <= 1) continue;
 
       const size = 0.4 + r4 * 1.2;
       const mat = new THREE.MeshStandardMaterial({
