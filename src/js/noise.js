@@ -1,4 +1,4 @@
-// Fungsi noise & heightmap
+// Fungsi noise & heightmap — bioma + benua + pulau
 
 function hash(x, z) {
   let n = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
@@ -38,88 +38,58 @@ function smoothstep(edge0, edge1, x) {
   return t * t * (3 - 2 * t);
 }
 
-// ===== SUPER KONTINEN =====
-function getSuperContinent(x, z) {
-  const n = fractalNoise(x, z, 3, 0.5, 0.0004);
-  return (n - 0.5) * 2; // -1 sampai +1
+// ===== BIOMA =====
+export function getBiome(x, z) {
+  const temp = fractalNoise(x * 0.0003 + 500, z * 0.0003 + 500, 3, 0.5, 1);
+  const humid = fractalNoise(x * 0.0003 + 1500, z * 0.0003 + 1500, 3, 0.5, 1);
+
+  if (temp < 0.35) return 2;                     // salju (dingin)
+  if (temp > 0.7 && humid < 0.4) return 1;      // gurun (panas, kering)
+  if (temp > 0.6 && humid > 0.6) return 3;      // tropis (panas, basah)
+  return 0;                                       // hutan (default)
 }
 
-// ===== PULAU =====
-function getMediumIslandNoise(x, z) {
-  const n = fractalNoise(x + 20000, z + 20000, 3, 0.5, 0.0015);
-  if (n > 0.6) return (n - 0.6) / 0.4;
-  return 0;
-}
+// ===== KONTINEN =====
+function getLandValue(x, z) {
+  const mega = fractalNoise(x, z, 3, 0.5, 0.0003);
+  const medium = fractalNoise(x + 10000, z + 10000, 3, 0.5, 0.001);
+  const bigIsland = fractalNoise(x + 20000, z + 20000, 3, 0.5, 0.0025);
+  const smallIsland = fractalNoise(x + 30000, z + 30000, 3, 0.5, 0.006);
 
-function getIslandNoise(x, z) {
-  const n = fractalNoise(x + 10000, z + 10000, 3, 0.5, 0.004);
-  if (n > 0.65) return (n - 0.65) / 0.35;
-  return 0;
+  const combined = (mega + medium + bigIsland + smallIsland) / 4;
+  return (combined - 0.5) * 2;
 }
 
 // ===== HEIGHT UTAMA =====
 export function getHeight(x, z) {
-  const superCont = getSuperContinent(x, z);
+  const cont = getLandValue(x, z);
 
   let baseHeight;
 
-  if (superCont < 0) {
-    // === LAUT — dengan DROP-OFF ===
-    // 4 zona:
-    // 1. Bibir pantai (superCont 0 sampai -0.05)  → 0 sampai -0.5
-    // 2. Paparan dangkal (superCont -0.05 sampai -0.15) → -0.5 sampai -3
-    // 3. DROP-OFF (superCont -0.15 sampai -0.2) → -3 sampai -25 (CURAM!)
-    // 4. Laut dalam (superCont -0.2 sampai -1) → -25 sampai -40
-
-    if (superCont > -0.05) {
-      // ZONA 1: BIBIR PANTAI
-      // Landai banget — 0 sampai -0.5 unit
-      const t = smoothstep(0, -0.05, superCont);
+  if (cont < 0) {
+    if (cont > -0.05) {
+      const t = smoothstep(0, -0.05, cont);
       baseHeight = -t * 0.5;
-    } else if (superCont > -0.15) {
-      // ZONA 2: PAPARAN DANGKAL
-      // Landai — -0.5 sampai -3 unit
-      // Jarak: superCont -0.05 sampai -0.15 (10% siklus)
-      const t = smoothstep(-0.05, -0.15, superCont);
+    } else if (cont > -0.15) {
+      const t = smoothstep(-0.05, -0.15, cont);
       baseHeight = -0.5 - t * 2.5;
-    } else if (superCont > -0.2) {
-      // ZONA 3: DROP-OFF — CURAM!
-      // Dari -3 sampai -25 unit (22 unit drop!)
-      // Jarak: superCont -0.15 sampai -0.2 (5% siklus)
-      const t = smoothstep(-0.15, -0.2, superCont);
+    } else if (cont > -0.2) {
+      const t = smoothstep(-0.15, -0.2, cont);
       baseHeight = -3 - t * 22;
     } else {
-      // ZONA 4: LAUT DALAM
-      // Dari -25 sampai -40 unit
-      const t = smoothstep(-0.2, -1, superCont);
+      const t = smoothstep(-0.2, -1, cont);
       baseHeight = -25 - t * 15;
     }
   } else {
-    // === DARATAN ===
-    if (superCont < 0.5) {
-      const t = smoothstep(0, 0.5, superCont);
-      baseHeight = t * 15;
+    if (cont < 0.3) {
+      const t = smoothstep(0, 0.3, cont);
+      baseHeight = t * 10;
+    } else if (cont < 0.6) {
+      const t = smoothstep(0.3, 0.6, cont);
+      baseHeight = 10 + t * 10;
     } else {
-      const t = smoothstep(0.5, 1, superCont);
-      baseHeight = 15 + t * 15;
-    }
-  }
-
-  // === PULAU SEDANG ===
-  if (baseHeight < 0) {
-    const mediumIsland = getMediumIslandNoise(x, z);
-    if (mediumIsland > 0) {
-      const t = smoothstep(0, 1, mediumIsland);
-      baseHeight += t * 15;
-    }
-  }
-
-  // === PULAU KECIL ===
-  if (baseHeight < 2) {
-    const smallIsland = getIslandNoise(x, z);
-    if (smallIsland > 0) {
-      const t = smoothstep(0, 1, smallIsland);
-      baseHeight += t * 8;
+      const t = smoothstep(0.6, 1, cont);
+      baseHeight = 20 + t * 10;
     }
   }
 
@@ -129,12 +99,16 @@ export function getHeight(x, z) {
     baseHeight += (smoothNoise(x * 0.02, z * 0.02) - 0.5) * 5 * landFactor;
     baseHeight += (smoothNoise(x * 0.05, z * 0.05) - 0.5) * 2 * landFactor;
 
+    // Gunung lebih tinggi di bioma salju
+    const biome = getBiome(x, z);
+    const mountainMult = biome === 2 ? 25 : 15;
+
     if (baseHeight > 20) {
       const mountainNoise = smoothNoise(x * 0.003, z * 0.003);
       if (mountainNoise > 0.72) {
         const mountainFactor = (mountainNoise - 0.72) / 0.28;
         const mountainLandFactor = smoothstep(20, 28, baseHeight);
-        baseHeight += Math.pow(mountainFactor, 1.5) * 15 * mountainLandFactor;
+        baseHeight += Math.pow(mountainFactor, 1.5) * mountainMult * mountainLandFactor;
       }
     }
   }
