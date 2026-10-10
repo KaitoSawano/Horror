@@ -24,7 +24,6 @@ export function loadDinoModel(onLoaded) {
     'assets/models/brontosaurus.glb',
     (gltf) => {
       dinoTemplate = gltf.scene;
-
       gltf.animations.forEach((clip) => {
         const name = clip.name.toLowerCase();
         if (name.includes('walk') || name.includes('jalan')) dinoAnimations.walk = clip;
@@ -48,13 +47,11 @@ export function loadDinoModel(onLoaded) {
       if (onLoaded) onLoaded();
     },
     undefined,
-    (err) => console.error('Gagal load brontosaurus.glb:', err)
+    (err) => console.error('Gagal load:', err)
   );
 }
 
-export function isDinoLoaded() {
-  return loaded;
-}
+export function isDinoLoaded() { return loaded; }
 
 export function spawnDino(x, z, scene) {
   if (!dinoTemplate) return null;
@@ -65,7 +62,6 @@ export function spawnDino(x, z, scene) {
     ? THREE.SkeletonUtils.clone(dinoTemplate)
     : dinoTemplate.clone(true);
 
-  // AUTO-SCALE
   const box = new THREE.Box3().setFromObject(model);
   const size = box.getSize(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
@@ -75,7 +71,7 @@ export function spawnDino(x, z, scene) {
   console.log('[DINO] Original:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2));
   console.log('[DINO] Auto-scale:', autoScale.toFixed(3));
 
-  // === DEBUG: WARNAI MERAH ===
+  // DEBUG: warna merah
   model.traverse((child) => {
     if (child.isMesh) {
       child.visible = true;
@@ -84,13 +80,22 @@ export function spawnDino(x, z, scene) {
     }
   });
 
-  // FIX Y POSITION
   const boxAfterAll = new THREE.Box3().setFromObject(model);
   const yOffset = -boxAfterAll.min.y + h;
 
   model.position.set(x, yOffset, z);
   model.rotation.y = Math.random() * Math.PI * 2;
   scene.add(model);
+
+  // === DEBUG: KOTAK MERAH WIREFRAME ===
+  const debugBox = new THREE.Mesh(
+    new THREE.BoxGeometry(3, 3, 3),
+    new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
+  );
+  debugBox.position.set(x, yOffset + 1.5, z);
+  scene.add(debugBox);
+
+  console.log('[DINO] Spawn pos:', x.toFixed(1), yOffset.toFixed(1), z.toFixed(1));
 
   const mixer = new THREE.AnimationMixer(model);
   const actions = {};
@@ -119,7 +124,6 @@ export function spawnDino(x, z, scene) {
   };
 
   dinos.push(dino);
-  console.log('[DINO] Spawned at', x.toFixed(0), z.toFixed(0), 'y=', yOffset.toFixed(1));
   return dino;
 }
 
@@ -139,10 +143,8 @@ export function autoSpawnDinos(player, scene, delta) {
     const dist = SPAWN_CONFIG.minDistance + Math.random() * (SPAWN_CONFIG.maxDistance - SPAWN_CONFIG.minDistance);
     const x = player.x + Math.cos(angle) * dist;
     const z = player.z + Math.sin(angle) * dist;
-
     const h = getHeight(x, z);
     if (h < SPAWN_CONFIG.minLandHeight || h > SPAWN_CONFIG.maxLandHeight) continue;
-
     const dino = spawnDino(x, z, scene);
     if (dino) break;
   }
@@ -224,6 +226,4 @@ export function damageDino(dino, amount) {
   }
 }
 
-export function getDinos() {
-  return dinos;
-}
+export function getDinos() { return dinos; }
