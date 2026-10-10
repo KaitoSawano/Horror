@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Open World</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="crosshair">+</div>
+  <button id="hint">Tap untuk mulai</button>
+  <div id="pos">X: 0 Z: 0</div>
+  <div id="debug">Loading...</div>
+
+  <!-- Hotbar -->
+  <div id="hotbar">
+    <div class="slot" data-slot="0"><span class="slot-num">1</span><div class="slot-icon"></div></div>
+    <div class="slot" data-slot="1"><span class="slot-num">2</span><div class="slot-icon"></div></div>
+    <div class="slot" data-slot="2"><span class="slot-num">3</span><div class="slot-icon"></div></div>
+    <div class="slot" data-slot="3"><span class="slot-num">4</span><div class="slot-icon"></div></div>
+    <div class="slot" data-slot="4"><span class="slot-num">5</span><div class="slot-icon"></div></div>
+  </div>
+
+  <!-- Inventory -->
+  <div id="inventory">
+    <div id="inv-header">
+      <span>Inventory</span>
+      <button id="inv-close">✕</button>
+    </div>
+    <div id="inv-grid"></div>
+  </div>
+
+  <!-- Tombol buka inventory -->
+  <div id="inv-btn">🎒</div>
+
+  <!-- Joystick -->
+  <div id="joystick-base">
+    <div id="joystick-knob"></div>
+  </div>
+
+  <!-- Tombol lompat -->
+  <div id="jump-btn">↑</div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
