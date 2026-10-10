@@ -23,9 +23,11 @@ export function buildOres(cx, cz, scene) {
       const pz = cellZ + r2 * CELL_SIZE;
       const h = getHeight(px, pz);
 
-      // Ore: 7% cell (r3 antara 0.55 - 0.62)
+      // Ore: 7% cell
       if (r3 < 0.55 || r3 >= 0.62) continue;
-      if (h <= 0) continue;
+
+      // Skip kalau di bawah air atau di air
+      if (h <= 1) continue;
 
       const size = 0.5 + r4 * 0.5;
       const mat = new THREE.MeshStandardMaterial({
