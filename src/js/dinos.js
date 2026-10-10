@@ -1,25 +1,23 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { getHeight, seededRandom } from './noise.js';
+import { getHeight } from './noise.js';
 
-// ===== STATE =====
 const dinos = [];
 let dinoTemplate = null;
 let dinoAnimations = {};
 let loaded = false;
 
-// Konfigurasi spawn — jarak jauh biar player bisa kabur
 const SPAWN_CONFIG = {
-  minDistance: 60,      // spawn minimal 60 unit dari player
-  maxDistance: 150,     // spawn maksimal 150 unit
-  despawnDistance: 250, // despawn kalau > 250 unit
-  maxDinos: 4,          // max dino aktif
-  spawnInterval: 8,     // cek spawn tiap 8 detik
-  minLandHeight: 3,     // cuma spawn di daratan
-  maxLandHeight: 30
+  minDistance: 25,
+  maxDistance: 60,
+  despawnDistance: 150,
+  maxDinos: 4,
+  spawnInterval: 5,
+  minLandHeight: 3,
+  maxLandHeight: 30,
+  targetHeight: 15  // ← tinggi dino dalam unit (GEDE BANGET)
 };
 
-// ===== LOAD MODEL =====
 export function loadDinoModel(onLoaded) {
   const loader = new GLTFLoader();
   loader.load(
@@ -27,7 +25,6 @@ export function loadDinoModel(onLoaded) {
     (gltf) => {
       dinoTemplate = gltf.scene;
 
-      // Auto-detect animasi
       gltf.animations.forEach((clip) => {
         const name = clip.name.toLowerCase();
         if (name.includes('walk') || name.includes('jalan')) dinoAnimations.walk = clip;
@@ -42,11 +39,11 @@ export function loadDinoModel(onLoaded) {
         }
       });
 
-      // Hitung ukuran model — buat auto-scale
+      // Cek ukuran asli model
       const box = new THREE.Box3().setFromObject(dinoTemplate);
       const size = box.getSize(new THREE.Vector3());
-      console.log('Dino size:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2));
-      console.log('Animations:', Object.keys(dinoAnimations));
+      console.log('[DINO] Original size:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2));
+      console.log('[DINO] Animations:', Object.keys(dinoAnimations));
 
       loaded = true;
       if (onLoaded) onLoaded();
@@ -60,26 +57,31 @@ export function isDinoLoaded() {
   return loaded;
 }
 
-// ===== SPAWN DINO =====
 export function spawnDino(x, z, scene) {
   if (!dinoTemplate) return null;
-
   const h = getHeight(x, z);
   if (h < SPAWN_CONFIG.minLandHeight || h > SPAWN_CONFIG.maxLandHeight) return null;
 
-  // Clone model
   const model = THREE.SkeletonUtils
     ? THREE.SkeletonUtils.clone(dinoTemplate)
     : dinoTemplate.clone(true);
 
+  // === AUTO-SCALE GEDE ===
+  // Hitung ukuran asli model, scale biar tingginya = targetHeight
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const autoScale = SPAWN_CONFIG.targetHeight / maxDim;
+
+  model.scale.set(autoScale, autoScale, autoScale);
+
+  console.log('[DINO] Scale:', autoScale.toFixed(3), '→ tinggi', (size.y * autoScale).toFixed(1), 'unit');
+
   const mixer = new THREE.AnimationMixer(model);
   const actions = {};
-
   for (const key in dinoAnimations) {
     actions[key] = mixer.clipAction(dinoAnimations[key]);
   }
-
-  // Play idle default
   if (actions.idle) {
     actions.idle.play();
     actions.idle.setLoop(THREE.LoopRepeat);
@@ -87,16 +89,12 @@ export function spawnDino(x, z, scene) {
     actions.walk.play();
   }
 
-  // Scale — 1.5× biar keliatan
-  model.scale.set(1.5, 1.5, 1.5);
   model.position.set(x, h, z);
   model.rotation.y = Math.random() * Math.PI * 2;
   scene.add(model);
 
   const dino = {
-    model,
-    mixer,
-    actions,
+    model, mixer, actions,
     currentAction: 'idle',
     x, z, y: h,
     state: 'idle',
@@ -106,8 +104,7 @@ export function spawnDino(x, z, scene) {
     lastAttackTime: 0,
     attackCooldown: 2000,
     patrolAngle: Math.random() * Math.PI * 2,
-    patrolTimer: 0,
-    deathTimer: 0
+    patrolTimer: 0
   };
 
   dinos.push(dino);
@@ -115,23 +112,17 @@ export function spawnDino(x, z, scene) {
   return dino;
 }
 
-// ===== AUTO SPAWN DI SEKITAR PLAYER =====
 let spawnTimer = 0;
 
 export function autoSpawnDinos(player, scene, delta) {
   if (!loaded) return;
-
   spawnTimer -= delta;
   if (spawnTimer > 0) return;
   spawnTimer = SPAWN_CONFIG.spawnInterval;
 
-  // Hitung dino aktif
   const aliveDinos = dinos.filter(d => d.state !== 'dead');
-
-  // Kalau udah cukup, skip
   if (aliveDinos.length >= SPAWN_CONFIG.maxDinos) return;
 
-  // Coba spawn 1 dino
   for (let attempt = 0; attempt < 20; attempt++) {
     const angle = Math.random() * Math.PI * 2;
     const dist = SPAWN_CONFIG.minDistance + Math.random() * (SPAWN_CONFIG.maxDistance - SPAWN_CONFIG.minDistance);
@@ -146,12 +137,10 @@ export function autoSpawnDinos(player, scene, delta) {
   }
 }
 
-// ===== DESPAWN DINO YANG JAUH =====
 export function despawnFarDinos(player, scene) {
   for (let i = dinos.length - 1; i >= 0; i--) {
     const dino = dinos[i];
     const dist = Math.hypot(dino.x - player.x, dino.z - player.z);
-
     if (dist > SPAWN_CONFIG.despawnDistance) {
       scene.remove(dino.model);
       dino.model.traverse((child) => {
@@ -166,29 +155,23 @@ export function despawnFarDinos(player, scene) {
   }
 }
 
-// ===== GANTI ANIMASI =====
 function setAction(dino, actionName) {
   if (dino.currentAction === actionName) return;
   if (!dino.actions[actionName]) return;
-
   const oldAction = dino.actions[dino.currentAction];
   const newAction = dino.actions[actionName];
-
   if (oldAction) oldAction.fadeOut(0.3);
   newAction.reset().fadeIn(0.3).play();
   dino.currentAction = actionName;
 }
 
-// ===== AI UPDATE =====
 export function updateDinos(player, delta, onAttackPlayer) {
   for (const dino of dinos) {
     if (dino.state === 'dead') {
       dino.mixer.update(delta);
       continue;
     }
-
     dino.mixer.update(delta);
-
     const dx = player.x - dino.x;
     const dz = player.z - dino.z;
     const dist = Math.hypot(dx, dz);
@@ -197,7 +180,6 @@ export function updateDinos(player, delta, onAttackPlayer) {
       if (dist < 2.5) {
         dino.state = 'attack';
         setAction(dino, 'attack');
-
         const now = performance.now();
         if (now - dino.lastAttackTime > dino.attackCooldown) {
           dino.lastAttackTime = now;
@@ -206,7 +188,6 @@ export function updateDinos(player, delta, onAttackPlayer) {
       } else {
         dino.state = 'chase';
         setAction(dino, 'walk');
-
         const angle = Math.atan2(dx, dz);
         dino.x += Math.sin(angle) * dino.speed * 1.5 * delta;
         dino.z += Math.cos(angle) * dino.speed * 1.5 * delta;
@@ -218,32 +199,24 @@ export function updateDinos(player, delta, onAttackPlayer) {
         dino.patrolTimer = 3 + Math.random() * 3;
         dino.patrolAngle = Math.random() * Math.PI * 2;
       }
-
       dino.state = 'walk';
       setAction(dino, 'walk');
-
       dino.x += Math.sin(dino.patrolAngle) * dino.speed * delta;
       dino.z += Math.cos(dino.patrolAngle) * dino.speed * delta;
       dino.model.rotation.y = dino.patrolAngle;
     }
-
     dino.y = getHeight(dino.x, dino.z);
     dino.model.position.set(dino.x, dino.y, dino.z);
   }
 }
 
-// ===== DAMAGE DINO =====
 export function damageDino(dino, amount) {
   if (dino.state === 'dead') return;
   dino.hp -= amount;
-
   if (dino.hp <= 0) {
     dino.state = 'dead';
     setAction(dino, 'death');
-
-    setTimeout(() => {
-      dino.model.visible = false;
-    }, 5000);
+    setTimeout(() => { dino.model.visible = false; }, 5000);
   }
 }
 
