@@ -23,7 +23,7 @@ const SPAWN_CONFIG = {
 export function loadDinoModel(onLoaded) {
   const loader = new GLTFLoader();
   loader.load(
-    'assets/models/apatosaurus.glb',
+    'assets/models/apatosaur.glb',
     (gltf) => {
       dinoTemplate = gltf.scene;
       dinoAnimations = gltf.animations;
