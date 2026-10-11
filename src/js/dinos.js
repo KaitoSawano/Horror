@@ -7,6 +7,7 @@ const dinos = [];
 let dinoTemplate = null;
 let dinoAnimations = [];
 let loaded = false;
+let baseYOffset = 0;  // offset global dari template
 
 const SPAWN_CONFIG = {
   minDistance: 150,
@@ -16,11 +17,11 @@ const SPAWN_CONFIG = {
   spawnInterval: 20,
   minLandHeight: 3,
   maxLandHeight: 30,
-  targetHeight: 5,        // ← dikecilin dari 8 ke 5
+  targetHeight: 5,
   rotateSpeed: 1.0,
   footOffset: 0,
-  walkSpeed: 1.0,         // ← lambat biar sinkron sama animasi
-  walkAnimSpeed: 0.6      // ← animasi jalan diperlambat
+  walkSpeed: 1.0,
+  walkAnimSpeed: 0.6
 };
 
 export function loadDinoModel(onLoaded) {
@@ -38,7 +39,17 @@ export function loadDinoModel(onLoaded) {
 
       const box = new THREE.Box3().setFromObject(dinoTemplate);
       const size = box.getSize(new THREE.Vector3());
+      const minY = box.min.y;
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const autoScale = SPAWN_CONFIG.targetHeight / maxDim;
+
+      // Hitung offset GLOBAL dari template (sebelum clone)
+      // minY * autoScale = posisi kaki setelah di-scale
+      baseYOffset = -minY * autoScale + SPAWN_CONFIG.footOffset;
+
       console.log('[DINO] Original size:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2));
+      console.log('[DINO] Auto-scale:', autoScale.toFixed(3));
+      console.log('[DINO] baseYOffset:', baseYOffset.toFixed(2));
 
       loaded = true;
       if (onLoaded) onLoaded();
@@ -77,49 +88,29 @@ export function spawnDino(x, z, scene) {
     actions.push(mixer.clipAction(clip));
   });
 
-  const animIdle = actions[0] || null;   // anim 1: diam
-  const animWalk = actions[3] || null;   // anim 4: jalan
+  const animIdle = actions[0] || null;   // 1: diam
+  const animWalk = actions[3] || null;   // 4: jalan
 
-  // Perlambat animasi walk
-  if (animWalk) {
-    animWalk.timeScale = SPAWN_CONFIG.walkAnimSpeed;
-  }
+  if (animWalk) animWalk.timeScale = SPAWN_CONFIG.walkAnimSpeed;
 
-  // Play walk dulu biar animasi "masuk", baru hitung offset
-  if (animWalk) {
-    animWalk.play();
-    animWalk.setLoop(THREE.LoopRepeat);
-  }
-  mixer.update(0.1);  // update dikit biar animasi masuk
-  mixer.update(0.1);
-
-  // Hitung offset SETELAH animasi walk
-  const boxAfterAnim = new THREE.Box3().setFromObject(model);
-  const minYAfterAnim = boxAfterAnim.min.y;
-  const yOffset = -minYAfterAnim + SPAWN_CONFIG.footOffset;
-
-  // Balikin ke idle
-  if (animWalk) animWalk.stop();
+  // Mulai dengan animasi IDLE
   if (animIdle) {
     animIdle.play();
     animIdle.setLoop(THREE.LoopRepeat);
   }
 
   const initialRot = Math.random() * Math.PI * 2;
-  model.position.set(x, h + yOffset, z);
+  model.position.set(x, h + baseYOffset, z);
   model.rotation.y = initialRot;
   scene.add(model);
-
-  console.log('[DINO] MinY after anim:', minYAfterAnim.toFixed(2), '| Y offset:', yOffset.toFixed(2));
 
   const dino = {
     model, mixer,
     actions: { idle: animIdle, walk: animWalk },
-    currentAction: 'walk',
+    currentAction: 'idle',
     x, z, y: h,
-    yOffset: yOffset,
     targetRotation: initialRot,
-    state: 'walk',
+    state: 'idle',
     speed: SPAWN_CONFIG.walkSpeed,
     hp: 50,
     maxHp: 50,
@@ -130,6 +121,7 @@ export function spawnDino(x, z, scene) {
   };
 
   dinos.push(dino);
+  console.log('[DINO] Spawn at:', x.toFixed(0), (h + baseYOffset).toFixed(1), z.toFixed(0));
   return dino;
 }
 
@@ -193,6 +185,7 @@ export function updateDinos(player, delta, onAttackPlayer) {
       continue;
     }
 
+    // Update animasi
     dino.mixer.update(delta);
 
     const dx = player.x - dino.x;
@@ -235,9 +228,9 @@ export function updateDinos(player, delta, onAttackPlayer) {
       Math.min(1, SPAWN_CONFIG.rotateSpeed * delta)
     );
 
-    // Kaki napak tanah — pakai offset tetap
+    // Kaki napak tanah — pakai baseYOffset GLOBAL
     dino.y = getHeight(dino.x, dino.z);
-    dino.model.position.set(dino.x, dino.y + dino.yOffset, dino.z);
+    dino.model.position.set(dino.x, dino.y + baseYOffset, dino.z);
   }
 }
 
