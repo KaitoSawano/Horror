@@ -9,15 +9,16 @@ let dinoAnimations = [];
 let loaded = false;
 
 const SPAWN_CONFIG = {
-  minDistance: 150,      // spawn minimal 150 unit (jauh banget)
-  maxDistance: 400,      // spawn maksimal 400 unit
-  despawnDistance: 800,  // despawn kalau > 800 unit
-  maxDinos: 2,           // max 2 dino aja
-  spawnInterval: 20,     // cek spawn tiap 20 detik (jarang)
+  minDistance: 150,
+  maxDistance: 400,
+  despawnDistance: 800,
+  maxDinos: 2,
+  spawnInterval: 20,
   minLandHeight: 3,
   maxLandHeight: 30,
   targetHeight: 8,
-  rotateSpeed: 2.0       // kecepatan muter badan (radian/detik)
+  rotateSpeed: 1.0,
+  footOffset: 0
 };
 
 export function loadDinoModel(onLoaded) {
@@ -35,7 +36,9 @@ export function loadDinoModel(onLoaded) {
 
       const box = new THREE.Box3().setFromObject(dinoTemplate);
       const size = box.getSize(new THREE.Vector3());
+      const min = box.min;
       console.log('[DINO] Original size:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2));
+      console.log('[DINO] Original min.y:', min.y.toFixed(2));
 
       loaded = true;
       if (onLoaded) onLoaded();
@@ -67,14 +70,17 @@ export function spawnDino(x, z, scene) {
     }
   });
 
-  const boxFinal = new THREE.Box3().setFromObject(model);
-  const modelHeight = boxFinal.max.y - boxFinal.min.y;
-  const yPos = h + modelHeight / 2;
+  // Hitung offset kaki — biar kaki napak tanah
+  const boxAfterScale = new THREE.Box3().setFromObject(model);
+  const minYAfterScale = boxAfterScale.min.y;
+  const yOffset = -minYAfterScale + SPAWN_CONFIG.footOffset;
 
   const initialRot = Math.random() * Math.PI * 2;
-  model.position.set(x, yPos, z);
+  model.position.set(x, h + yOffset, z);
   model.rotation.y = initialRot;
   scene.add(model);
+
+  console.log('[DINO] MinY after scale:', minYAfterScale.toFixed(2), '| Y offset:', yOffset.toFixed(2));
 
   const mixer = new THREE.AnimationMixer(model);
   const actions = [];
@@ -90,12 +96,15 @@ export function spawnDino(x, z, scene) {
     animIdle.setLoop(THREE.LoopRepeat);
   }
 
+  mixer.update(0);
+
   const dino = {
     model, mixer,
     actions: { idle: animIdle, walk: animWalk },
     currentAction: 'idle',
     x, z, y: h,
-    targetRotation: initialRot,   // rotasi target (buat lerp)
+    yOffset: yOffset,
+    targetRotation: initialRot,
     state: 'idle',
     speed: 1.5,
     hp: 50,
@@ -107,7 +116,7 @@ export function spawnDino(x, z, scene) {
   };
 
   dinos.push(dino);
-  console.log('[DINO] Spawn at:', x.toFixed(0), yPos.toFixed(1), z.toFixed(0));
+  console.log('[DINO] Spawn at:', x.toFixed(0), (h + yOffset).toFixed(1), z.toFixed(0));
   return dino;
 }
 
@@ -157,7 +166,6 @@ function setAction(dino, actionName) {
   dino.currentAction = actionName;
 }
 
-// Helper: interpolasi sudut (rotasi halus)
 function lerpAngle(current, target, t) {
   let diff = target - current;
   while (diff > Math.PI) diff -= Math.PI * 2;
@@ -179,6 +187,7 @@ export function updateDinos(player, delta, onAttackPlayer) {
     const dist = Math.hypot(dx, dz);
 
     if (dist < 12) {
+      // === CHASE / ATTACK ===
       if (dist < 2.5) {
         dino.state = 'attack';
         setAction(dino, 'idle');
@@ -196,9 +205,10 @@ export function updateDinos(player, delta, onAttackPlayer) {
         dino.targetRotation = angle;
       }
     } else {
+      // === PATROLI — ganti arah tiap 15-30 detik ===
       dino.patrolTimer -= delta;
       if (dino.patrolTimer <= 0) {
-        dino.patrolTimer = 3 + Math.random() * 3;
+        dino.patrolTimer = 15 + Math.random() * 15;
         dino.patrolAngle = Math.random() * Math.PI * 2;
       }
       dino.state = 'walk';
@@ -208,17 +218,16 @@ export function updateDinos(player, delta, onAttackPlayer) {
       dino.targetRotation = dino.patrolAngle;
     }
 
-    // === ROTASI HALUS ===
+    // Rotasi halus
     dino.model.rotation.y = lerpAngle(
       dino.model.rotation.y,
       dino.targetRotation,
       Math.min(1, SPAWN_CONFIG.rotateSpeed * delta)
     );
 
+    // Kaki napak tanah
     dino.y = getHeight(dino.x, dino.z);
-    const boxNow = new THREE.Box3().setFromObject(dino.model);
-    const modelH = boxNow.max.y - boxNow.min.y;
-    dino.model.position.set(dino.x, dino.y + modelH / 2, dino.z);
+    dino.model.position.set(dino.x, dino.y + dino.yOffset, dino.z);
   }
 }
 
