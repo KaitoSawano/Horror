@@ -9,17 +9,17 @@ let dinoAnimations = [];
 let loaded = false;
 
 const SPAWN_CONFIG = {
-  minDistance: 25,
-  maxDistance: 60,
-  despawnDistance: 150,
-  maxDinos: 4,
-  spawnInterval: 5,
+  minDistance: 150,      // spawn minimal 150 unit (jauh banget)
+  maxDistance: 400,      // spawn maksimal 400 unit
+  despawnDistance: 800,  // despawn kalau > 800 unit
+  maxDinos: 2,           // max 2 dino aja
+  spawnInterval: 20,     // cek spawn tiap 20 detik (jarang)
   minLandHeight: 3,
   maxLandHeight: 30,
-  targetHeight: 8
+  targetHeight: 8,
+  rotateSpeed: 2.0       // kecepatan muter badan (radian/detik)
 };
 
-// ===== LOAD MODEL =====
 export function loadDinoModel(onLoaded) {
   const loader = new GLTFLoader();
   loader.load(
@@ -37,26 +37,16 @@ export function loadDinoModel(onLoaded) {
       const size = box.getSize(new THREE.Vector3());
       console.log('[DINO] Original size:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2));
 
-      let meshCount = 0, skinnedCount = 0;
-      dinoTemplate.traverse((child) => {
-        if (child.isMesh) {
-          meshCount++;
-          if (child.isSkinnedMesh) skinnedCount++;
-        }
-      });
-      console.log('[DINO] Total mesh:', meshCount, '| SkinnedMesh:', skinnedCount);
-
       loaded = true;
       if (onLoaded) onLoaded();
     },
     undefined,
-    (err) => console.error('Gagal load apatosaurus.glb:', err)
+    (err) => console.error('Gagal load apatosaur.glb:', err)
   );
 }
 
 export function isDinoLoaded() { return loaded; }
 
-// ===== SPAWN DINO =====
 export function spawnDino(x, z, scene) {
   if (!dinoTemplate) return null;
   const h = getHeight(x, z);
@@ -64,14 +54,11 @@ export function spawnDino(x, z, scene) {
 
   const model = SkeletonUtils.clone(dinoTemplate);
 
-  // Auto-scale
   const box = new THREE.Box3().setFromObject(model);
   const size = box.getSize(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
   const autoScale = SPAWN_CONFIG.targetHeight / maxDim;
   model.scale.set(autoScale, autoScale, autoScale);
-
-  console.log('[DINO] Auto-scale:', autoScale.toFixed(3));
 
   model.traverse((child) => {
     if (child.isMesh) {
@@ -84,29 +71,19 @@ export function spawnDino(x, z, scene) {
   const modelHeight = boxFinal.max.y - boxFinal.min.y;
   const yPos = h + modelHeight / 2;
 
+  const initialRot = Math.random() * Math.PI * 2;
   model.position.set(x, yPos, z);
-  model.rotation.y = Math.random() * Math.PI * 2;
+  model.rotation.y = initialRot;
   scene.add(model);
 
-  console.log('[DINO] Model height:', modelHeight.toFixed(2), '| Y:', yPos.toFixed(2));
-
-  // === ANIMASI ===
   const mixer = new THREE.AnimationMixer(model);
   const actions = [];
-
   dinoAnimations.forEach((clip) => {
-    const action = mixer.clipAction(clip);
-    actions.push(action);
+    actions.push(mixer.clipAction(clip));
   });
 
-  // Mapping berdasarkan test:
-  // 1 = diam (idle)
-  // 4 = jalan (walk)
-  // Gak ada attack & death
-  const animIdle = actions[0] || null;   // 1
-  const animWalk = actions[3] || null;   // 4
-  const animAttack = actions[0] || null; // pakai idle (gak ada attack)
-  const animDeath = actions[0] || null;  // pakai idle (gak ada death)
+  const animIdle = actions[0] || null;
+  const animWalk = actions[3] || null;
 
   if (animIdle) {
     animIdle.play();
@@ -115,30 +92,25 @@ export function spawnDino(x, z, scene) {
 
   const dino = {
     model, mixer,
-    actions: {
-      idle: animIdle,
-      walk: animWalk,
-      attack: animAttack,
-      death: animDeath
-    },
+    actions: { idle: animIdle, walk: animWalk },
     currentAction: 'idle',
     x, z, y: h,
+    targetRotation: initialRot,   // rotasi target (buat lerp)
     state: 'idle',
     speed: 1.5,
     hp: 50,
     maxHp: 50,
     lastAttackTime: 0,
     attackCooldown: 2000,
-    patrolAngle: Math.random() * Math.PI * 2,
+    patrolAngle: initialRot,
     patrolTimer: 0
   };
 
   dinos.push(dino);
-  console.log('[DINO] Spawn at:', x.toFixed(1), yPos.toFixed(1), z.toFixed(1));
+  console.log('[DINO] Spawn at:', x.toFixed(0), yPos.toFixed(1), z.toFixed(0));
   return dino;
 }
 
-// ===== AUTO SPAWN =====
 let spawnTimer = 0;
 
 export function autoSpawnDinos(player, scene, delta) {
@@ -150,7 +122,7 @@ export function autoSpawnDinos(player, scene, delta) {
   const aliveDinos = dinos.filter(d => d.state !== 'dead');
   if (aliveDinos.length >= SPAWN_CONFIG.maxDinos) return;
 
-  for (let attempt = 0; attempt < 20; attempt++) {
+  for (let attempt = 0; attempt < 30; attempt++) {
     const angle = Math.random() * Math.PI * 2;
     const dist = SPAWN_CONFIG.minDistance + Math.random() * (SPAWN_CONFIG.maxDistance - SPAWN_CONFIG.minDistance);
     const x = player.x + Math.cos(angle) * dist;
@@ -164,7 +136,6 @@ export function autoSpawnDinos(player, scene, delta) {
   }
 }
 
-// ===== DESPAWN =====
 export function despawnFarDinos(player, scene) {
   for (let i = dinos.length - 1; i >= 0; i--) {
     const dino = dinos[i];
@@ -176,20 +147,24 @@ export function despawnFarDinos(player, scene) {
   }
 }
 
-// ===== GANTI ANIMASI =====
 function setAction(dino, actionName) {
   if (dino.currentAction === actionName) return;
   const action = dino.actions[actionName];
   if (!action) return;
-
   const oldAction = dino.actions[dino.currentAction];
   if (oldAction) oldAction.fadeOut(0.3);
-
   action.reset().fadeIn(0.3).play();
   dino.currentAction = actionName;
 }
 
-// ===== AI =====
+// Helper: interpolasi sudut (rotasi halus)
+function lerpAngle(current, target, t) {
+  let diff = target - current;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  return current + diff * t;
+}
+
 export function updateDinos(player, delta, onAttackPlayer) {
   for (const dino of dinos) {
     if (dino.state === 'dead') {
@@ -206,7 +181,7 @@ export function updateDinos(player, delta, onAttackPlayer) {
     if (dist < 12) {
       if (dist < 2.5) {
         dino.state = 'attack';
-        setAction(dino, 'attack');
+        setAction(dino, 'idle');
         const now = performance.now();
         if (now - dino.lastAttackTime > dino.attackCooldown) {
           dino.lastAttackTime = now;
@@ -218,7 +193,7 @@ export function updateDinos(player, delta, onAttackPlayer) {
         const angle = Math.atan2(dx, dz);
         dino.x += Math.sin(angle) * dino.speed * 1.5 * delta;
         dino.z += Math.cos(angle) * dino.speed * 1.5 * delta;
-        dino.model.rotation.y = angle;
+        dino.targetRotation = angle;
       }
     } else {
       dino.patrolTimer -= delta;
@@ -230,8 +205,15 @@ export function updateDinos(player, delta, onAttackPlayer) {
       setAction(dino, 'walk');
       dino.x += Math.sin(dino.patrolAngle) * dino.speed * delta;
       dino.z += Math.cos(dino.patrolAngle) * dino.speed * delta;
-      dino.model.rotation.y = dino.patrolAngle;
+      dino.targetRotation = dino.patrolAngle;
     }
+
+    // === ROTASI HALUS ===
+    dino.model.rotation.y = lerpAngle(
+      dino.model.rotation.y,
+      dino.targetRotation,
+      Math.min(1, SPAWN_CONFIG.rotateSpeed * delta)
+    );
 
     dino.y = getHeight(dino.x, dino.z);
     const boxNow = new THREE.Box3().setFromObject(dino.model);
@@ -240,13 +222,11 @@ export function updateDinos(player, delta, onAttackPlayer) {
   }
 }
 
-// ===== DAMAGE =====
 export function damageDino(dino, amount) {
   if (dino.state === 'dead') return;
   dino.hp -= amount;
   if (dino.hp <= 0) {
     dino.state = 'dead';
-    // Gak ada animasi death — langsung ilang aja
     setTimeout(() => { dino.model.visible = false; }, 1000);
   }
 }
