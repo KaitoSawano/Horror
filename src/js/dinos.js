@@ -5,7 +5,7 @@ import { getHeight } from './noise.js';
 
 const dinos = [];
 let dinoTemplate = null;
-let dinoAnimations = {};
+let dinoAnimations = [];
 let loaded = false;
 
 const SPAWN_CONFIG = {
@@ -16,70 +16,67 @@ const SPAWN_CONFIG = {
   spawnInterval: 5,
   minLandHeight: 3,
   maxLandHeight: 30,
-  targetHeight: 15
+  targetHeight: 8
 };
 
+// ===== LOAD MODEL =====
 export function loadDinoModel(onLoaded) {
   const loader = new GLTFLoader();
   loader.load(
-    'assets/models/brontosaurus.glb',
+    'assets/models/apatosaurus.glb',
     (gltf) => {
       dinoTemplate = gltf.scene;
+      dinoAnimations = gltf.animations;
 
-      gltf.animations.forEach((clip) => {
-        const name = clip.name.toLowerCase();
-        if (name.includes('walk') || name.includes('jalan')) dinoAnimations.walk = clip;
-        else if (name.includes('idle') || name.includes('diam')) dinoAnimations.idle = clip;
-        else if (name.includes('attack') || name.includes('serang')) dinoAnimations.attack = clip;
-        else if (name.includes('death') || name.includes('mati') || name.includes('die')) dinoAnimations.death = clip;
-        else {
-          if (!dinoAnimations.walk) dinoAnimations.walk = clip;
-          else if (!dinoAnimations.idle) dinoAnimations.idle = clip;
-          else if (!dinoAnimations.attack) dinoAnimations.attack = clip;
-          else if (!dinoAnimations.death) dinoAnimations.death = clip;
-        }
+      console.log('[DINO] Loaded! Animations:', dinoAnimations.length);
+      dinoAnimations.forEach((clip, i) => {
+        console.log(`[DINO] Anim ${i}: ${clip.name} (${clip.duration.toFixed(2)}s)`);
       });
 
       const box = new THREE.Box3().setFromObject(dinoTemplate);
       const size = box.getSize(new THREE.Vector3());
       console.log('[DINO] Original size:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2));
-      console.log('[DINO] Animations:', Object.keys(dinoAnimations));
+
+      let meshCount = 0, skinnedCount = 0;
+      dinoTemplate.traverse((child) => {
+        if (child.isMesh) {
+          meshCount++;
+          if (child.isSkinnedMesh) skinnedCount++;
+        }
+      });
+      console.log('[DINO] Total mesh:', meshCount, '| SkinnedMesh:', skinnedCount);
 
       loaded = true;
       if (onLoaded) onLoaded();
     },
     undefined,
-    (err) => console.error('Gagal load brontosaurus.glb:', err)
+    (err) => console.error('Gagal load apatosaurus.glb:', err)
   );
 }
 
-export function isDinoLoaded() {
-  return loaded;
-}
+export function isDinoLoaded() { return loaded; }
 
+// ===== SPAWN DINO =====
 export function spawnDino(x, z, scene) {
   if (!dinoTemplate) return null;
   const h = getHeight(x, z);
   if (h < SPAWN_CONFIG.minLandHeight || h > SPAWN_CONFIG.maxLandHeight) return null;
 
-  // === PAKAI SKELETONUTILS BUAT CLONE ===
   const model = SkeletonUtils.clone(dinoTemplate);
 
+  // Auto-scale
   const box = new THREE.Box3().setFromObject(model);
   const size = box.getSize(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
   const autoScale = SPAWN_CONFIG.targetHeight / maxDim;
   model.scale.set(autoScale, autoScale, autoScale);
 
-  console.log('[DINO] Original:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2));
   console.log('[DINO] Auto-scale:', autoScale.toFixed(3));
 
-  // Material — warna hijau dulu (bukan merah, biar keliatan natural)
   model.traverse((child) => {
     if (child.isMesh) {
       child.visible = true;
       child.frustumCulled = false;
-      // Jangan ganti material — biar texture asli keliatan
     }
   });
 
@@ -87,26 +84,43 @@ export function spawnDino(x, z, scene) {
   const modelHeight = boxFinal.max.y - boxFinal.min.y;
   const yPos = h + modelHeight / 2;
 
-  console.log('[DINO] Model height:', modelHeight.toFixed(2), '| Y:', yPos.toFixed(2));
-
   model.position.set(x, yPos, z);
   model.rotation.y = Math.random() * Math.PI * 2;
   scene.add(model);
 
+  console.log('[DINO] Model height:', modelHeight.toFixed(2), '| Y:', yPos.toFixed(2));
+
+  // === ANIMASI ===
   const mixer = new THREE.AnimationMixer(model);
-  const actions = {};
-  for (const key in dinoAnimations) {
-    actions[key] = mixer.clipAction(dinoAnimations[key]);
-  }
-  if (actions.idle) {
-    actions.idle.play();
-    actions.idle.setLoop(THREE.LoopRepeat);
-  } else if (actions.walk) {
-    actions.walk.play();
+  const actions = [];
+
+  dinoAnimations.forEach((clip) => {
+    const action = mixer.clipAction(clip);
+    actions.push(action);
+  });
+
+  // Mapping berdasarkan test:
+  // 1 = diam (idle)
+  // 4 = jalan (walk)
+  // Gak ada attack & death
+  const animIdle = actions[0] || null;   // 1
+  const animWalk = actions[3] || null;   // 4
+  const animAttack = actions[0] || null; // pakai idle (gak ada attack)
+  const animDeath = actions[0] || null;  // pakai idle (gak ada death)
+
+  if (animIdle) {
+    animIdle.play();
+    animIdle.setLoop(THREE.LoopRepeat);
   }
 
   const dino = {
-    model, mixer, actions,
+    model, mixer,
+    actions: {
+      idle: animIdle,
+      walk: animWalk,
+      attack: animAttack,
+      death: animDeath
+    },
     currentAction: 'idle',
     x, z, y: h,
     state: 'idle',
@@ -124,6 +138,7 @@ export function spawnDino(x, z, scene) {
   return dino;
 }
 
+// ===== AUTO SPAWN =====
 let spawnTimer = 0;
 
 export function autoSpawnDinos(player, scene, delta) {
@@ -149,41 +164,41 @@ export function autoSpawnDinos(player, scene, delta) {
   }
 }
 
+// ===== DESPAWN =====
 export function despawnFarDinos(player, scene) {
   for (let i = dinos.length - 1; i >= 0; i--) {
     const dino = dinos[i];
     const dist = Math.hypot(dino.x - player.x, dino.z - player.z);
     if (dist > SPAWN_CONFIG.despawnDistance) {
       scene.remove(dino.model);
-      dino.model.traverse((child) => {
-        if (child.geometry) child.geometry.dispose();
-        if (child.material) {
-          if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
-          else child.material.dispose();
-        }
-      });
       dinos.splice(i, 1);
     }
   }
 }
 
+// ===== GANTI ANIMASI =====
 function setAction(dino, actionName) {
   if (dino.currentAction === actionName) return;
-  if (!dino.actions[actionName]) return;
+  const action = dino.actions[actionName];
+  if (!action) return;
+
   const oldAction = dino.actions[dino.currentAction];
-  const newAction = dino.actions[actionName];
   if (oldAction) oldAction.fadeOut(0.3);
-  newAction.reset().fadeIn(0.3).play();
+
+  action.reset().fadeIn(0.3).play();
   dino.currentAction = actionName;
 }
 
+// ===== AI =====
 export function updateDinos(player, delta, onAttackPlayer) {
   for (const dino of dinos) {
     if (dino.state === 'dead') {
       dino.mixer.update(delta);
       continue;
     }
+
     dino.mixer.update(delta);
+
     const dx = player.x - dino.x;
     const dz = player.z - dino.z;
     const dist = Math.hypot(dx, dz);
@@ -217,21 +232,23 @@ export function updateDinos(player, delta, onAttackPlayer) {
       dino.z += Math.cos(dino.patrolAngle) * dino.speed * delta;
       dino.model.rotation.y = dino.patrolAngle;
     }
+
     dino.y = getHeight(dino.x, dino.z);
-    dino.model.position.set(dino.x, dino.y, dino.z);
+    const boxNow = new THREE.Box3().setFromObject(dino.model);
+    const modelH = boxNow.max.y - boxNow.min.y;
+    dino.model.position.set(dino.x, dino.y + modelH / 2, dino.z);
   }
 }
 
+// ===== DAMAGE =====
 export function damageDino(dino, amount) {
   if (dino.state === 'dead') return;
   dino.hp -= amount;
   if (dino.hp <= 0) {
     dino.state = 'dead';
-    setAction(dino, 'death');
-    setTimeout(() => { dino.model.visible = false; }, 5000);
+    // Gak ada animasi death — langsung ilang aja
+    setTimeout(() => { dino.model.visible = false; }, 1000);
   }
 }
 
-export function getDinos() {
-  return dinos;
-}
+export function getDinos() { return dinos; }
