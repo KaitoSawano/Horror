@@ -16,9 +16,11 @@ const SPAWN_CONFIG = {
   spawnInterval: 20,
   minLandHeight: 3,
   maxLandHeight: 30,
-  targetHeight: 8,
+  targetHeight: 5,        // ← dikecilin dari 8 ke 5
   rotateSpeed: 1.0,
-  footOffset: 0
+  footOffset: 0,
+  walkSpeed: 1.0,         // ← lambat biar sinkron sama animasi
+  walkAnimSpeed: 0.6      // ← animasi jalan diperlambat
 };
 
 export function loadDinoModel(onLoaded) {
@@ -36,9 +38,7 @@ export function loadDinoModel(onLoaded) {
 
       const box = new THREE.Box3().setFromObject(dinoTemplate);
       const size = box.getSize(new THREE.Vector3());
-      const min = box.min;
       console.log('[DINO] Original size:', size.x.toFixed(2), size.y.toFixed(2), size.z.toFixed(2));
-      console.log('[DINO] Original min.y:', min.y.toFixed(2));
 
       loaded = true;
       if (onLoaded) onLoaded();
@@ -70,43 +70,57 @@ export function spawnDino(x, z, scene) {
     }
   });
 
-  // Hitung offset kaki — biar kaki napak tanah
-  const boxAfterScale = new THREE.Box3().setFromObject(model);
-  const minYAfterScale = boxAfterScale.min.y;
-  const yOffset = -minYAfterScale + SPAWN_CONFIG.footOffset;
-
-  const initialRot = Math.random() * Math.PI * 2;
-  model.position.set(x, h + yOffset, z);
-  model.rotation.y = initialRot;
-  scene.add(model);
-
-  console.log('[DINO] MinY after scale:', minYAfterScale.toFixed(2), '| Y offset:', yOffset.toFixed(2));
-
+  // === SETUP ANIMASI ===
   const mixer = new THREE.AnimationMixer(model);
   const actions = [];
   dinoAnimations.forEach((clip) => {
     actions.push(mixer.clipAction(clip));
   });
 
-  const animIdle = actions[0] || null;
-  const animWalk = actions[3] || null;
+  const animIdle = actions[0] || null;   // anim 1: diam
+  const animWalk = actions[3] || null;   // anim 4: jalan
 
+  // Perlambat animasi walk
+  if (animWalk) {
+    animWalk.timeScale = SPAWN_CONFIG.walkAnimSpeed;
+  }
+
+  // Play walk dulu biar animasi "masuk", baru hitung offset
+  if (animWalk) {
+    animWalk.play();
+    animWalk.setLoop(THREE.LoopRepeat);
+  }
+  mixer.update(0.1);  // update dikit biar animasi masuk
+  mixer.update(0.1);
+
+  // Hitung offset SETELAH animasi walk
+  const boxAfterAnim = new THREE.Box3().setFromObject(model);
+  const minYAfterAnim = boxAfterAnim.min.y;
+  const yOffset = -minYAfterAnim + SPAWN_CONFIG.footOffset;
+
+  // Balikin ke idle
+  if (animWalk) animWalk.stop();
   if (animIdle) {
     animIdle.play();
     animIdle.setLoop(THREE.LoopRepeat);
   }
 
-  mixer.update(0);
+  const initialRot = Math.random() * Math.PI * 2;
+  model.position.set(x, h + yOffset, z);
+  model.rotation.y = initialRot;
+  scene.add(model);
+
+  console.log('[DINO] MinY after anim:', minYAfterAnim.toFixed(2), '| Y offset:', yOffset.toFixed(2));
 
   const dino = {
     model, mixer,
     actions: { idle: animIdle, walk: animWalk },
-    currentAction: 'idle',
+    currentAction: 'walk',
     x, z, y: h,
     yOffset: yOffset,
     targetRotation: initialRot,
-    state: 'idle',
-    speed: 1.5,
+    state: 'walk',
+    speed: SPAWN_CONFIG.walkSpeed,
     hp: 50,
     maxHp: 50,
     lastAttackTime: 0,
@@ -116,7 +130,6 @@ export function spawnDino(x, z, scene) {
   };
 
   dinos.push(dino);
-  console.log('[DINO] Spawn at:', x.toFixed(0), (h + yOffset).toFixed(1), z.toFixed(0));
   return dino;
 }
 
@@ -187,7 +200,6 @@ export function updateDinos(player, delta, onAttackPlayer) {
     const dist = Math.hypot(dx, dz);
 
     if (dist < 12) {
-      // === CHASE / ATTACK ===
       if (dist < 2.5) {
         dino.state = 'attack';
         setAction(dino, 'idle');
@@ -205,7 +217,6 @@ export function updateDinos(player, delta, onAttackPlayer) {
         dino.targetRotation = angle;
       }
     } else {
-      // === PATROLI — ganti arah tiap 15-30 detik ===
       dino.patrolTimer -= delta;
       if (dino.patrolTimer <= 0) {
         dino.patrolTimer = 15 + Math.random() * 15;
@@ -218,14 +229,13 @@ export function updateDinos(player, delta, onAttackPlayer) {
       dino.targetRotation = dino.patrolAngle;
     }
 
-    // Rotasi halus
     dino.model.rotation.y = lerpAngle(
       dino.model.rotation.y,
       dino.targetRotation,
       Math.min(1, SPAWN_CONFIG.rotateSpeed * delta)
     );
 
-    // Kaki napak tanah
+    // Kaki napak tanah — pakai offset tetap
     dino.y = getHeight(dino.x, dino.z);
     dino.model.position.set(dino.x, dino.y + dino.yOffset, dino.z);
   }
